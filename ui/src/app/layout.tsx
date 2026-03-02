@@ -3,8 +3,8 @@ import "./globals.css";
 import { Sidebar } from "@/components/sidebar";
 
 export const metadata: Metadata = {
-  title: "Local-System",
-  description: "Distributed Local AI Platform",
+  title: "Athanor",
+  description: "Sovereign Cognitive Architecture",
 };
 
 export default function RootLayout({

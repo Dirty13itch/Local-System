@@ -1,8 +1,6 @@
-"""Shared test fixtures for Local-System."""
+"""Shared test fixtures for Athanor."""
 
 from __future__ import annotations
-
-import os
 
 import pytest
 
@@ -11,16 +9,14 @@ import pytest
 def _test_env(monkeypatch: pytest.MonkeyPatch) -> None:
     """Set default env vars for tests so config loading doesn't fail."""
     defaults = {
-        "NODE_NAME": "desk",
+        "NODE_NAME": "hydra-storage",
         "NODE_ROLE": "orchestrator",
-        "NODE1_HOST": "127.0.0.1",
-        "NODE2_HOST": "127.0.0.1",
-        "VAULT_HOST": "127.0.0.1",
-        "DESK_HOST": "127.0.0.1",
-        "DEV_HOST": "127.0.0.1",
-        "MOBILE_HOST": "127.0.0.1",
+        "HYDRA_AI_HOST": "127.0.0.1",
+        "HYDRA_COMPUTE_HOST": "127.0.0.1",
+        "HYDRA_STORAGE_HOST": "127.0.0.1",
         "POSTGRES_PASSWORD": "test",
         "REDIS_PASSWORD": "test",
+        "LITELLM_KEY": "test-key",
         "API_SECRET_KEY": "test-secret",
     }
     for key, value in defaults.items():

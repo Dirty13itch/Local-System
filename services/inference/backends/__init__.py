@@ -1,4 +1,4 @@
-"""Pluggable inference backends."""
+"""Inference backends: LiteLLM (primary gateway), TabbyAPI, Ollama."""
 
 from __future__ import annotations
 
@@ -12,75 +12,80 @@ from local_system.models import (
     ModelInfo,
     StreamChunk,
 )
-from local_system.utils import generate_id
 
 from .base import InferenceBackend
+from .litellm_router import LiteLLMRouter
+from .tabby import TabbyBackend
 from .ollama import OllamaBackend
-from .vllm import VLLMBackend
-from .llamacpp import LlamaCppBackend
 
 
 class BackendRouter:
-    """Routes inference requests to the appropriate backend based on the model."""
+    """Routes inference requests through the correct backend.
+
+    Architecture:
+      - LiteLLM is the primary gateway for all chat/completion requests.
+        It handles model routing (70B→TabbyAPI, 7B→Ollama GPU, fallback→Ollama CPU).
+      - TabbyAPI is accessed directly for model management (load/unload/status).
+      - Ollama GPU is accessed directly for embeddings.
+    """
 
     def __init__(self, settings: Settings) -> None:
         self.settings = settings
-        self.backends: dict[ModelBackend, InferenceBackend] = {}
-        self._model_backend_map: dict[str, ModelBackend] = {}
+        self.litellm = LiteLLMRouter(settings)
+        self.tabby = TabbyBackend(settings)
+        self.ollama_gpu = OllamaBackend(
+            host=settings.inference.ollama_gpu_host,
+            name="ollama-gpu",
+        )
+        self.ollama_cpu = OllamaBackend(
+            host=settings.inference.ollama_cpu_host,
+            name="ollama-cpu",
+        )
 
     async def initialize(self) -> None:
-        """Initialize all configured backends."""
-        self.backends[ModelBackend.OLLAMA] = OllamaBackend(self.settings)
-        self.backends[ModelBackend.VLLM] = VLLMBackend(self.settings)
-        self.backends[ModelBackend.LLAMACPP] = LlamaCppBackend(self.settings)
-
-        for backend in self.backends.values():
-            await backend.initialize()
-
-        await self._refresh_model_map()
+        """Initialize all backends."""
+        await self.litellm.initialize()
+        await self.tabby.initialize()
+        await self.ollama_gpu.initialize()
+        await self.ollama_cpu.initialize()
 
     async def shutdown(self) -> None:
-        for backend in self.backends.values():
-            await backend.shutdown()
-
-    async def _refresh_model_map(self) -> None:
-        """Refresh the mapping of model names to backends."""
-        self._model_backend_map.clear()
-        for backend_type, backend in self.backends.items():
-            try:
-                models = await backend.list_models()
-                for model in models:
-                    self._model_backend_map[model.name] = backend_type
-            except Exception:
-                continue
-
-    def _resolve_backend(self, model: str) -> InferenceBackend:
-        """Find which backend serves a given model."""
-        backend_type = self._model_backend_map.get(model)
-        if backend_type is None:
-            # Default to Ollama — it can auto-pull models
-            backend_type = ModelBackend.OLLAMA
-        return self.backends[backend_type]
+        await self.litellm.shutdown()
+        await self.tabby.shutdown()
+        await self.ollama_gpu.shutdown()
+        await self.ollama_cpu.shutdown()
 
     async def chat(self, request: ChatRequest) -> ChatResponse:
-        backend = self._resolve_backend(request.model)
-        return await backend.chat(request)
+        """Route chat through LiteLLM (handles model→backend routing)."""
+        return await self.litellm.chat(request)
 
     async def chat_stream(self, request: ChatRequest) -> AsyncGenerator[StreamChunk, None]:
-        backend = self._resolve_backend(request.model)
-        async for chunk in backend.chat_stream(request):
+        """Route streaming chat through LiteLLM."""
+        async for chunk in self.litellm.chat_stream(request):
             yield chunk
 
     async def embed(self, model: str, texts: list[str]) -> dict:
-        backend = self._resolve_backend(model)
-        return await backend.embed(model, texts)
+        """Embeddings go directly to Ollama GPU (nomic-embed-text)."""
+        return await self.ollama_gpu.embed(model, texts)
 
     async def list_models(self) -> list[ModelInfo]:
+        """Aggregate models from all backends."""
         all_models: list[ModelInfo] = []
-        for backend in self.backends.values():
+        for backend in [self.tabby, self.ollama_gpu, self.ollama_cpu]:
             try:
                 models = await backend.list_models()
                 all_models.extend(models)
             except Exception:
                 continue
         return all_models
+
+    # --- TabbyAPI direct management ---
+
+    async def tabby_status(self) -> dict:
+        return await self.tabby.get_status()
+
+    async def tabby_load_model(self, model_name: str) -> dict:
+        return await self.tabby.load_model(model_name)
+
+    async def tabby_unload_model(self) -> dict:
+        return await self.tabby.unload_model()

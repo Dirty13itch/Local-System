@@ -1,0 +1,279 @@
+# hydra-storage — Orchestration Brain + Databases + Services
+# EPYC 7663 56C/112T · 256GB DDR4 ECC · Arc A380 (Plex transcoding)
+# OS: Unraid 7.2.x · IP: 192.168.1.244
+#
+# This is the central nervous system — runs 60+ containers.
+# The EPYC's 56 cores + 256GB ECC RAM make it ideal for:
+#   - Agent orchestration (20+ concurrent agents)
+#   - Database hosting (PostgreSQL, Qdrant, Neo4j, Redis, Meilisearch)
+#   - Service mesh (gateway, cognitive workspace, memory, RAG)
+#   - KV cache tier (~180GB available RAM for semantic caching)
+
+services:
+  # === DATABASES ===
+
+  postgres:
+    image: postgres:16-alpine
+    container_name: postgres
+    ports:
+      - "5432:5432"
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-athanor}
+      POSTGRES_USER: ${POSTGRES_USER:-hydra}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-changeme}
+    volumes:
+      - /mnt/user/databases/postgres:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U hydra"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  qdrant:
+    image: qdrant/qdrant:latest
+    container_name: qdrant
+    ports:
+      - "6333:6333"
+      - "6334:6334"
+    volumes:
+      - /mnt/user/databases/qdrant:/qdrant/storage
+    environment:
+      QDRANT__SERVICE__GRPC_PORT: 6334
+    restart: unless-stopped
+
+  redis:
+    image: redis:7-alpine
+    container_name: redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - /mnt/user/databases/redis:/data
+    command: redis-server --appendonly yes --requirepass ${REDIS_PASSWORD:-changeme}
+    healthcheck:
+      test: ["CMD", "redis-cli", "-a", "${REDIS_PASSWORD:-changeme}", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  neo4j:
+    image: neo4j:5-community
+    container_name: hydra-neo4j
+    ports:
+      - "7474:7474"
+      - "7687:7687"
+    environment:
+      NEO4J_AUTH: neo4j/${NEO4J_PASSWORD:-changeme}
+      NEO4J_PLUGINS: '["apoc"]'
+    volumes:
+      - /mnt/user/appdata/neo4j/data:/data
+    restart: unless-stopped
+
+  meilisearch:
+    image: getmeili/meilisearch:latest
+    container_name: meilisearch
+    ports:
+      - "7700:7700"
+    environment:
+      MEILI_MASTER_KEY: ${MEILISEARCH_KEY:-changeme}
+      MEILI_ENV: production
+    volumes:
+      - /mnt/user/databases/meilisearch:/meili_data
+    restart: unless-stopped
+
+  minio:
+    image: minio/minio:latest
+    container_name: minio
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    environment:
+      MINIO_ROOT_USER: ${MINIO_USER:-hydra}
+      MINIO_ROOT_PASSWORD: ${MINIO_PASSWORD:-changeme}
+    volumes:
+      - /mnt/user/databases/minio:/data
+    command: server /data --console-address ":9001"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 30s
+      timeout: 20s
+      retries: 3
+    restart: unless-stopped
+
+  # === INFERENCE GATEWAY ===
+
+  litellm:
+    image: ghcr.io/berriai/litellm:main-latest
+    container_name: litellm
+    ports:
+      - "4000:4000"
+    volumes:
+      - ./litellm/config.yaml:/app/config.yaml
+    environment:
+      LITELLM_MASTER_KEY: ${LITELLM_KEY:-changeme}
+    command: ["--config", "/app/config.yaml"]
+    restart: unless-stopped
+
+  ollama-cpu:
+    image: ollama/ollama:latest
+    container_name: ollama-cpu
+    ports:
+      - "11434:11434"
+    volumes:
+      - /mnt/user/appdata/ollama:/root/.ollama
+    environment:
+      OLLAMA_HOST: 0.0.0.0
+    restart: unless-stopped
+
+  # === ATHANOR CORE SERVICES ===
+
+  gateway:
+    build:
+      context: ../..
+      dockerfile: services/gateway/Dockerfile
+    container_name: athanor-gateway
+    ports:
+      - "8700:8700"
+    env_file:
+      - ../../.env
+    environment:
+      NODE_NAME: hydra-storage
+      NODE_ROLE: orchestrator
+    depends_on:
+      - litellm
+      - redis
+    restart: unless-stopped
+
+  cognitive:
+    build:
+      context: ../..
+      dockerfile: services/cognitive/Dockerfile
+    container_name: athanor-cognitive
+    ports:
+      - "8701:8701"
+    env_file:
+      - ../../.env
+    environment:
+      NODE_NAME: hydra-storage
+      NODE_ROLE: orchestrator
+    depends_on:
+      - redis
+    restart: unless-stopped
+
+  memory:
+    build:
+      context: ../..
+      dockerfile: services/memory/Dockerfile
+    container_name: athanor-memory
+    ports:
+      - "8702:8702"
+    env_file:
+      - ../../.env
+    environment:
+      NODE_NAME: hydra-storage
+      NODE_ROLE: orchestrator
+    depends_on:
+      - redis
+      - qdrant
+      - neo4j
+      - postgres
+    restart: unless-stopped
+
+  orchestrator:
+    build:
+      context: ../..
+      dockerfile: services/orchestrator/Dockerfile
+    container_name: athanor-orchestrator
+    ports:
+      - "8703:8703"
+    env_file:
+      - ../../.env
+    environment:
+      NODE_NAME: hydra-storage
+      NODE_ROLE: orchestrator
+    depends_on:
+      - memory
+      - litellm
+    restart: unless-stopped
+
+  rag:
+    build:
+      context: ../..
+      dockerfile: services/rag/Dockerfile
+    container_name: athanor-rag
+    ports:
+      - "8704:8704"
+    env_file:
+      - ../../.env
+    environment:
+      NODE_NAME: hydra-storage
+      NODE_ROLE: orchestrator
+    depends_on:
+      - qdrant
+      - meilisearch
+    restart: unless-stopped
+
+  # === MONITORING ===
+
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: prometheus
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml
+      - prometheus-data:/prometheus
+    restart: unless-stopped
+
+  grafana:
+    image: grafana/grafana:latest
+    container_name: grafana
+    ports:
+      - "3003:3000"
+    environment:
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_PASSWORD:-changeme}
+    volumes:
+      - grafana-data:/var/lib/grafana
+    depends_on:
+      - prometheus
+    restart: unless-stopped
+
+  # === AUTOMATION ===
+
+  n8n:
+    image: docker.n8n.io/n8nio/n8n:latest
+    container_name: n8n
+    ports:
+      - "5678:5678"
+    environment:
+      DB_TYPE: postgresdb
+      DB_POSTGRESDB_HOST: postgres
+      DB_POSTGRESDB_DATABASE: n8n
+      DB_POSTGRESDB_USER: ${POSTGRES_USER:-hydra}
+      DB_POSTGRESDB_PASSWORD: ${POSTGRES_PASSWORD:-changeme}
+    volumes:
+      - n8n-data:/home/node/.n8n
+    depends_on:
+      - postgres
+    restart: unless-stopped
+
+  # === COMMAND CENTER UI ===
+
+  ui:
+    build:
+      context: ../..
+      dockerfile: ui/Dockerfile
+    container_name: athanor-ui
+    ports:
+      - "3200:3000"
+    environment:
+      NEXT_PUBLIC_API_URL: http://192.168.1.244:8700
+    depends_on:
+      - gateway
+    restart: unless-stopped
+
+volumes:
+  prometheus-data:
+  grafana-data:
+  n8n-data:

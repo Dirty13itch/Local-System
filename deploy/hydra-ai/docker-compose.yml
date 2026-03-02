@@ -1,0 +1,34 @@
+# hydra-ai — Primary Inference Node
+# Threadripper 7960X · 128GB DDR5 · RTX 5090 32GB + RTX 4090 24GB
+# OS: NixOS · IP: 192.168.1.250
+#
+# TabbyAPI runs as a NixOS systemd service (not Docker) for direct GPU access.
+# This compose file is for auxiliary services only.
+#
+# TabbyAPI is configured in /etc/nixos/configuration.nix:
+#   systemd.services.tabbyapi (ExLlamaV2, tensor parallel, port 5000)
+
+services:
+  # Node metrics exporter
+  node-exporter:
+    image: prom/node-exporter:latest
+    ports:
+      - "9100:9100"
+    volumes:
+      - /proc:/host/proc:ro
+      - /sys:/host/sys:ro
+      - /:/rootfs:ro
+    command:
+      - '--path.procfs=/host/proc'
+      - '--path.sysfs=/host/sys'
+      - '--collector.filesystem.mount-points-exclude=^/(sys|proc|dev|host|etc)($$|/)'
+    restart: unless-stopped
+
+  # NVIDIA GPU metrics
+  nvidia-exporter:
+    image: utkuozdemir/nvidia_gpu_exporter:1.2.0
+    ports:
+      - "9835:9835"
+    volumes:
+      - /usr/lib/x86_64-linux-gnu/libnvidia-ml.so.1:/usr/lib/x86_64-linux-gnu/libnvidia-ml.so.1:ro
+    restart: unless-stopped

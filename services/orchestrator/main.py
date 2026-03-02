@@ -1,7 +1,10 @@
-"""Orchestrator Service — agent and task management.
+"""Orchestrator Service — agent lifecycle and task management.
 
-Manages AI agents, executes tool-augmented workflows, and coordinates
-multi-step tasks across the system.
+Manages specialist agents, integrates with the cognitive workspace,
+and coordinates multi-step tasks. Uses memory service for context.
+
+Runs on hydra-storage (EPYC 7663 — 56 cores, 256GB ECC RAM).
+The EPYC can run 20+ concurrent agents in parallel.
 """
 
 from __future__ import annotations
@@ -16,6 +19,7 @@ from local_system.config import get_settings
 from local_system.models import (
     AgentConfig,
     HealthResponse,
+    SpecialistType,
     Task,
     TaskStatus,
 )
@@ -40,7 +44,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
 
 
 app = FastAPI(
-    title="Local-System Orchestrator",
+    title="Athanor Orchestrator",
     version="0.1.0",
     lifespan=lifespan,
 )
@@ -65,9 +69,12 @@ async def list_agents() -> list[AgentConfig]:
 async def create_task(body: dict) -> Task:
     """Create and execute a new agent task."""
     task_id = generate_id("task")
+    specialist = SpecialistType(body.get("specialist", "general"))
+
     task = Task(
         id=task_id,
         agent_id=body.get("agent_id"),
+        specialist=specialist,
         description=body.get("description", ""),
     )
     app.state.tasks[task_id] = task
@@ -109,21 +116,61 @@ async def cancel_task(task_id: str) -> Task:
 
 
 async def _run_task(task: Task, config: dict) -> None:
-    """Execute a task using the agent runner."""
+    """Execute a task using the agent runner, with memory integration."""
     from datetime import datetime, timezone
 
     task.status = TaskStatus.RUNNING
+
+    # Fetch relevant memory context
+    memory_context: list[str] = []
+    try:
+        import httpx
+
+        async with httpx.AsyncClient() as client:
+            resp = await client.post(
+                f"http://localhost:{settings.ports.memory}/v1/memory/search",
+                json={"query": task.description, "top_k": 5},
+                timeout=10.0,
+            )
+            if resp.status_code == 200:
+                data = resp.json()
+                memory_context = [r["content"] for r in data.get("results", [])]
+                task.memory_context = [r.get("id", "") for r in data.get("results", [])]
+    except Exception as e:
+        logger.warning(f"Memory lookup failed for task {task.id}: {e}")
+
     try:
         result = await app.state.agent_runner.run(
             description=task.description,
             agent_id=config.get("agent_id"),
-            model=config.get("model", "llama3.1:8b"),
+            model=config.get("model", "llama-70b"),
             tools=config.get("tools", []),
             max_iterations=config.get("max_iterations", 10),
+            memory_context=memory_context,
         )
         task.result = result
         task.status = TaskStatus.COMPLETED
         task.completed_at = datetime.now(timezone.utc)
+
+        # Store episodic memory of task completion
+        try:
+            import httpx
+
+            async with httpx.AsyncClient() as client:
+                await client.post(
+                    f"http://localhost:{settings.ports.memory}/v1/memory/episodic",
+                    json={
+                        "id": generate_id("ep"),
+                        "event_type": "task_outcome",
+                        "summary": f"Task completed: {task.description[:100]}",
+                        "details": {"task_id": task.id, "specialist": task.specialist.value},
+                        "outcome": "success",
+                    },
+                    timeout=5.0,
+                )
+        except Exception:
+            pass
+
     except Exception as e:
         logger.error(f"Task {task.id} failed: {e}")
         task.error = str(e)

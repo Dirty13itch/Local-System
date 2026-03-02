@@ -5,9 +5,11 @@ import { usePathname } from "next/navigation";
 import { clsx } from "clsx";
 
 const NAV_ITEMS = [
-  { href: "/", label: "Chat", icon: "M" },
-  { href: "/models", label: "Models", icon: "C" },
-  { href: "/documents", label: "Documents", icon: "D" },
+  { href: "/", label: "Chat", icon: "C" },
+  { href: "/models", label: "Models", icon: "M" },
+  { href: "/memory", label: "Memory", icon: "W" },
+  { href: "/agents", label: "Agents", icon: "A" },
+  { href: "/documents", label: "Knowledge", icon: "K" },
   { href: "/nodes", label: "Nodes", icon: "N" },
 ];
 
@@ -18,8 +20,8 @@ export function Sidebar() {
     <aside className="w-56 h-screen border-r border-[var(--border)] bg-[var(--bg-secondary)] flex flex-col">
       {/* Logo */}
       <div className="p-4 border-b border-[var(--border)]">
-        <h1 className="text-lg font-bold tracking-tight">Local-System</h1>
-        <p className="text-xs text-[var(--text-secondary)]">Distributed AI Platform</p>
+        <h1 className="text-lg font-bold tracking-tight">Athanor</h1>
+        <p className="text-xs text-[var(--text-secondary)]">Sovereign Cognitive Architecture</p>
       </div>
 
       {/* Navigation */}

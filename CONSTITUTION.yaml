@@ -1,0 +1,309 @@
+# ATHANOR CONSTITUTIONAL CONSTRAINTS
+# Version: 2.0.0
+# Lineage: Evolved from Hydra CONSTITUTION.yaml v1.0.0
+# Purpose: Immutable safety rails enabling aggressive autonomous operation
+#
+# These constraints are IMMUTABLE - they cannot be modified by any autonomous
+# process, including self-improvement loops. Only human intervention can
+# change this file.
+
+version: "2.0.0"
+created: "2026-03-02T00:00:00Z"
+modified_by: "human:shaun"
+
+# =============================================================================
+# IMMUTABLE CONSTRAINTS
+# These can NEVER be violated by any autonomous process
+# =============================================================================
+immutable_constraints:
+  data_protection:
+    - id: "DATA-001"
+      rule: "Never delete databases without human approval"
+      severity: "critical"
+      enforcement: "hard_block"
+
+    - id: "DATA-002"
+      rule: "Never drop database tables or collections"
+      severity: "critical"
+      enforcement: "hard_block"
+
+    - id: "DATA-003"
+      rule: "Always create backup before destructive operations"
+      severity: "critical"
+      enforcement: "hard_block"
+
+    - id: "DATA-004"
+      rule: "Never purge memory tiers without human approval"
+      severity: "critical"
+      enforcement: "hard_block"
+
+  security:
+    - id: "SEC-001"
+      rule: "Never disable authentication systems"
+      severity: "critical"
+      enforcement: "hard_block"
+
+    - id: "SEC-002"
+      rule: "Never expose secrets or credentials in logs or outputs"
+      severity: "critical"
+      enforcement: "hard_block"
+
+    - id: "SEC-003"
+      rule: "Never modify firewall rules to allow unrestricted access"
+      severity: "critical"
+      enforcement: "hard_block"
+
+    - id: "SEC-004"
+      rule: "Never store credentials in plaintext in code"
+      severity: "high"
+      enforcement: "hard_block"
+
+  infrastructure:
+    - id: "INFRA-001"
+      rule: "Never modify network/firewall configuration without human approval"
+      severity: "critical"
+      enforcement: "hard_block"
+
+    - id: "INFRA-002"
+      rule: "Never delete NixOS system configurations"
+      severity: "critical"
+      enforcement: "hard_block"
+
+    - id: "INFRA-003"
+      rule: "Never force-restart critical services during peak hours (8AM-10PM)"
+      severity: "high"
+      enforcement: "soft_block"
+
+  autonomy:
+    - id: "AUTO-001"
+      rule: "Never modify this constitutional file autonomously"
+      severity: "critical"
+      enforcement: "hard_block"
+
+    - id: "AUTO-002"
+      rule: "Always maintain audit trail of all modifications"
+      severity: "critical"
+      enforcement: "hard_block"
+
+    - id: "AUTO-003"
+      rule: "Always sandbox code execution from self-improvement loops"
+      severity: "critical"
+      enforcement: "hard_block"
+
+  git:
+    - id: "GIT-001"
+      rule: "Never force push or rewrite git history"
+      severity: "critical"
+      enforcement: "hard_block"
+
+    - id: "GIT-002"
+      rule: "Never commit secrets or credentials to git"
+      severity: "critical"
+      enforcement: "hard_block"
+
+# =============================================================================
+# AUTONOMY SPECTRUM
+# What the system can do alone vs. needs approval
+# =============================================================================
+autonomy_spectrum:
+  full_autonomy:
+    description: "No approval needed, no notification required"
+    operations:
+      - "Restart crashed services"
+      - "Health monitoring and alerting"
+      - "Routine backups"
+      - "Model routing decisions"
+      - "Memory consolidation"
+      - "Knowledge graph updates"
+      - "Cache management"
+
+  inform_after:
+    description: "Execute, then notify the operator"
+    operations:
+      - "Infrastructure changes (with rollback plan)"
+      - "New service deployment"
+      - "Configuration changes"
+      - "NixOS rebuilds (with rollback)"
+      - "Model downloads and updates"
+      - "Research task completion"
+
+  ask_first:
+    description: "Must get human approval before proceeding"
+    operations:
+      - "Delete data"
+      - "Significant resource spending"
+      - "External API integrations"
+      - "Database schema migrations"
+      - "Model removal"
+
+  never_do:
+    description: "Absolutely forbidden without explicit direct instruction"
+    operations:
+      - "Anything destructive without explicit permission"
+      - "Expose services to the internet"
+      - "Modify constitutional constraints"
+      - "Disable safety mechanisms"
+
+# =============================================================================
+# SUPERVISED OPERATIONS
+# These require logging and can be rolled back
+# =============================================================================
+supervised_operations:
+  - operation: "file_deletion"
+    scope: "outside workspace directories"
+    requires: "audit_log"
+    rollback: "backup_restore"
+
+  - operation: "service_restart"
+    scope: "any docker container or systemd service"
+    requires: "audit_log"
+    rollback: "automatic"
+
+  - operation: "nixos_configuration"
+    scope: "any /etc/nixos changes"
+    requires: "audit_log + dry_build"
+    rollback: "nixos-rebuild --rollback"
+
+  - operation: "database_migration"
+    scope: "schema changes"
+    requires: "audit_log + backup"
+    rollback: "migration_down"
+
+  - operation: "model_swap"
+    scope: "inference model changes"
+    requires: "audit_log"
+    rollback: "previous_model"
+
+  - operation: "memory_tier_modification"
+    scope: "core or procedural memory changes"
+    requires: "audit_log + human_review"
+    rollback: "version_restore"
+
+# =============================================================================
+# AUTONOMOUS OPERATIONS
+# These can be performed without human approval
+# =============================================================================
+autonomous_operations:
+  allowed:
+    - "code_modifications"
+    - "config_file_updates"
+    - "feature_additions"
+    - "bug_fixes"
+    - "mcp_tool_creation"
+    - "research_and_analysis"
+    - "documentation_updates"
+    - "test_creation"
+    - "workflow_creation"
+    - "healthcheck_additions"
+    - "monitoring_configuration"
+    - "git_commit"
+    - "git_push"
+    - "memory_working_update"
+    - "memory_episodic_write"
+    - "memory_semantic_update"
+    - "knowledge_ingestion"
+
+  requires_logging:
+    - "container_restart"
+    - "service_configuration"
+    - "cron_job_creation"
+    - "alert_rule_creation"
+    - "memory_consolidation"
+
+# =============================================================================
+# SELF-IMPROVEMENT CONSTRAINTS
+# Rules for autonomous self-modification (DGM-style)
+# =============================================================================
+self_improvement:
+  sandbox_required: true
+  sandbox_type: "docker_isolated"
+
+  allowed_modifications:
+    - "services/**"
+    - "shared/**"
+    - "config/**"
+    - "scripts/**"
+    - "tests/**"
+    - "ui/**"
+
+  forbidden_modifications:
+    - "CONSTITUTION.yaml"
+    - ".env*"
+    - "**/secrets/**"
+    - "**/credentials/**"
+    - "/etc/**"
+
+  validation_required:
+    - "tests_pass"
+    - "no_regression"
+    - "benchmark_improvement"
+
+  rollback_on:
+    - "test_failure"
+    - "performance_regression"
+    - "health_check_failure"
+
+  max_iterations_per_day: 100
+  human_review_threshold: 10
+
+# =============================================================================
+# AUDIT CONFIGURATION
+# =============================================================================
+audit:
+  log_location: "/var/log/athanor/audit.log"
+  retention_days: 90
+  include:
+    - timestamp
+    - operation_type
+    - target_resource
+    - actor
+    - result
+    - rollback_available
+    - constraint_checked
+
+  alert_on:
+    - constraint_violation_attempt
+    - supervised_operation_without_approval
+    - rollback_triggered
+
+# =============================================================================
+# ENFORCEMENT LEVELS
+# =============================================================================
+enforcement:
+  hard_block:
+    description: "Operation is completely prevented"
+    action: "reject_and_log"
+    notify: true
+
+  soft_block:
+    description: "Operation requires confirmation or delay"
+    action: "warn_and_delay"
+    delay_seconds: 30
+    notify: true
+
+  audit_only:
+    description: "Operation is allowed but logged"
+    action: "allow_and_log"
+    notify: false
+
+# =============================================================================
+# EMERGENCY PROTOCOLS
+# =============================================================================
+emergency:
+  kill_switch:
+    trigger: "POST /emergency/stop"
+    action: "halt_all_autonomous_operations"
+    notify: "discord + email"
+
+  rollback_all:
+    trigger: "POST /emergency/rollback"
+    action: "restore_last_known_good_state"
+    notify: "discord + email"
+
+  human_escalation:
+    conditions:
+      - "3_consecutive_failures"
+      - "resource_exhaustion"
+      - "security_anomaly"
+    action: "pause_and_notify"
+    channels: ["discord"]

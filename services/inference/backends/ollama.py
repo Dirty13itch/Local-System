@@ -1,13 +1,18 @@
-"""Ollama inference backend."""
+"""Ollama inference backend — 7B-14B fast models + CPU fallback.
+
+Two instances:
+  - GPU (hydra-compute:11434) — 5070 Ti x2 for fast 7B-14B inference
+  - CPU (hydra-storage:11434) — EPYC 56-core fallback when GPUs busy
+"""
 
 from __future__ import annotations
 
+import json
 from datetime import datetime, timezone
 from typing import AsyncGenerator
 
 import httpx
 
-from local_system.config import Settings
 from local_system.models import (
     ChatRequest,
     ChatResponse,
@@ -22,14 +27,14 @@ from local_system.utils import generate_id, setup_logging
 
 from .base import InferenceBackend
 
-logger = setup_logging("inference.ollama")
-
 
 class OllamaBackend(InferenceBackend):
     """Ollama REST API backend."""
 
-    def __init__(self, settings: Settings) -> None:
-        self.base_url = settings.inference.ollama_host
+    def __init__(self, host: str, name: str = "ollama") -> None:
+        self.base_url = host
+        self.name = name
+        self.logger = setup_logging(f"inference.{name}")
         self.client: httpx.AsyncClient | None = None
 
     async def initialize(self) -> None:
@@ -40,9 +45,13 @@ class OllamaBackend(InferenceBackend):
         try:
             resp = await self.client.get("/api/tags")
             resp.raise_for_status()
-            logger.info(f"Ollama connected at {self.base_url}")
+            models = resp.json().get("models", [])
+            self.logger.info(
+                f"Ollama ({self.name}) connected at {self.base_url}, "
+                f"{len(models)} models available"
+            )
         except Exception as e:
-            logger.warning(f"Ollama not available at {self.base_url}: {e}")
+            self.logger.warning(f"Ollama ({self.name}) not available at {self.base_url}: {e}")
 
     async def shutdown(self) -> None:
         if self.client:
@@ -96,8 +105,6 @@ class OllamaBackend(InferenceBackend):
             async for line in resp.aiter_lines():
                 if not line:
                     continue
-                import json
-
                 data = json.loads(line)
                 content = data.get("message", {}).get("content", "")
                 done = data.get("done", False)
@@ -141,7 +148,7 @@ class OllamaBackend(InferenceBackend):
                     parameter_count=m.get("details", {}).get("parameter_size", ""),
                     quantization=m.get("details", {}).get("quantization_level", ""),
                     loaded=True,
-                    node="",
+                    node=self.name,
                 )
             )
         return models

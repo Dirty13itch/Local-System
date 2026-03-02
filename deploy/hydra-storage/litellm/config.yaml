@@ -1,0 +1,65 @@
+# LiteLLM Configuration — Athanor Inference Routing
+#
+# Routes model requests to the appropriate backend:
+#   - 70B models → TabbyAPI (ExLlamaV2, tensor parallel on 5090+4090)
+#   - 7B-14B models → Ollama GPU (5070 Ti on hydra-compute)
+#   - Embeddings → Ollama GPU (nomic-embed-text)
+#   - Fallback → Ollama CPU (EPYC 56-core on hydra-storage)
+
+model_list:
+  # --- Primary: 70B on TabbyAPI (hydra-ai) ---
+  - model_name: "llama-70b"
+    litellm_params:
+      model: "openai/default"
+      api_base: "http://192.168.1.250:5000/v1"
+      api_key: "not-needed"
+    model_info:
+      max_tokens: 32768
+
+  - model_name: "gpt-4"  # Compatibility alias
+    litellm_params:
+      model: "openai/default"
+      api_base: "http://192.168.1.250:5000/v1"
+      api_key: "not-needed"
+
+  # --- Fast: 7B-14B on Ollama GPU (hydra-compute) ---
+  - model_name: "qwen2.5-7b"
+    litellm_params:
+      model: "ollama/qwen2.5:7b"
+      api_base: "http://192.168.1.203:11434"
+
+  - model_name: "qwen-coder"
+    litellm_params:
+      model: "ollama/qwen2.5-coder:7b"
+      api_base: "http://192.168.1.203:11434"
+
+  - model_name: "gpt-3.5-turbo"  # Compatibility alias
+    litellm_params:
+      model: "ollama/qwen2.5:7b"
+      api_base: "http://192.168.1.203:11434"
+
+  # --- Embeddings ---
+  - model_name: "text-embedding-nomic"
+    litellm_params:
+      model: "ollama/nomic-embed-text"
+      api_base: "http://192.168.1.203:11434"
+
+  - model_name: "text-embedding-ada-002"  # Compatibility alias
+    litellm_params:
+      model: "ollama/nomic-embed-text"
+      api_base: "http://192.168.1.203:11434"
+
+  # --- Fallback: CPU on Ollama (hydra-storage EPYC) ---
+  - model_name: "llama-7b-cpu"
+    litellm_params:
+      model: "ollama/llama3.2:latest"
+      api_base: "http://192.168.1.244:11434"
+
+router_settings:
+  routing_strategy: "simple-shuffle"
+  num_retries: 2
+  timeout: 300
+
+litellm_settings:
+  drop_params: true
+  set_verbose: false

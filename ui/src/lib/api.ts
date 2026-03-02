@@ -1,8 +1,8 @@
 /**
- * API client for the Local-System gateway.
+ * API client for the Athanor gateway.
  */
 
-const BASE_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+const BASE_URL = process.env.NEXT_PUBLIC_API_URL || "http://192.168.1.244:8700";
 
 export interface Message {
   role: "system" | "user" | "assistant" | "tool";
@@ -26,6 +26,18 @@ export interface Model {
   quantization: string;
   loaded: boolean;
   node: string;
+}
+
+export interface WorkingContext {
+  active_task: string | null;
+  active_priorities: string[];
+  unresolved_questions: string[];
+}
+
+export interface CognitiveState {
+  active_specialist: string | null;
+  attention_focus: string;
+  cycle_count: number;
 }
 
 export type ClusterHealth = Record<string, Record<string, unknown>>;
@@ -104,20 +116,33 @@ class ApiClient {
     }
   }
 
-  async listCollections(): Promise<Record<string, unknown>[]> {
-    try {
-      const resp = await fetch(`${this.baseUrl.replace(":8000", ":8003")}/v1/collections`);
-      return resp.json();
-    } catch {
-      return [];
-    }
+  // Memory endpoints
+  async getWorkingMemory(): Promise<WorkingContext> {
+    const resp = await fetch(`${this.baseUrl}/v1/memory/working`);
+    return resp.json();
   }
 
+  async searchMemory(query: string, topK = 10) {
+    const resp = await fetch(`${this.baseUrl}/v1/memory/search`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ query, top_k: topK }),
+    });
+    return resp.json();
+  }
+
+  // Cognitive workspace
+  async getCognitiveState(): Promise<CognitiveState> {
+    const resp = await fetch(`${this.baseUrl}/v1/cognitive/state`);
+    return resp.json();
+  }
+
+  // Search (hybrid)
   async search(query: string, collection = "default", topK = 10) {
     const resp = await fetch(`${this.baseUrl}/v1/search`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ query, collection, top_k: topK }),
+      body: JSON.stringify({ query, collection, top_k: topK, use_hybrid: true }),
     });
     return resp.json();
   }

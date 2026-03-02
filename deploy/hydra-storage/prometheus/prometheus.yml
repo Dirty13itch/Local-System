@@ -1,0 +1,58 @@
+# Prometheus Configuration — Athanor Cluster Monitoring
+
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+
+scrape_configs:
+  # --- Node Metrics ---
+  - job_name: 'node-exporter'
+    static_configs:
+      - targets:
+          - '192.168.1.250:9100'  # hydra-ai
+          - '192.168.1.203:9100'  # hydra-compute
+          - '192.168.1.244:9100'  # hydra-storage
+        labels:
+          cluster: 'athanor'
+
+  # --- GPU Metrics ---
+  - job_name: 'nvidia-gpu'
+    static_configs:
+      - targets:
+          - '192.168.1.250:9835'  # hydra-ai (5090 + 4090)
+          - '192.168.1.203:9835'  # hydra-compute (2x 5070 Ti)
+        labels:
+          cluster: 'athanor'
+
+  # --- Athanor Services ---
+  - job_name: 'athanor-gateway'
+    static_configs:
+      - targets: ['192.168.1.244:8700']
+
+  - job_name: 'athanor-cognitive'
+    static_configs:
+      - targets: ['192.168.1.244:8701']
+
+  - job_name: 'athanor-memory'
+    static_configs:
+      - targets: ['192.168.1.244:8702']
+
+  - job_name: 'athanor-orchestrator'
+    static_configs:
+      - targets: ['192.168.1.244:8703']
+
+  # --- Inference Backends ---
+  - job_name: 'tabby-api'
+    metrics_path: '/health'
+    static_configs:
+      - targets: ['192.168.1.250:5000']
+
+  - job_name: 'litellm'
+    static_configs:
+      - targets: ['192.168.1.244:4000']
+
+  # --- Databases ---
+  - job_name: 'qdrant'
+    metrics_path: '/metrics'
+    static_configs:
+      - targets: ['192.168.1.244:6333']

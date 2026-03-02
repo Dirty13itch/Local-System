@@ -1,7 +1,13 @@
-"""Inference Service — multi-backend LLM serving.
+"""Inference Service — routes to LiteLLM/TabbyAPI/Ollama.
 
-Provides a unified API over Ollama, vLLM, and llama.cpp backends.
-Runs on GPU-equipped nodes (Node 1, Node 2, DEV).
+The proven inference stack:
+  - LiteLLM (gateway) → routes all requests to appropriate backend
+  - TabbyAPI + ExLlamaV2 → 70B models via tensor parallel (5090+4090)
+  - Ollama GPU → 7B-14B fast models on 5070 Ti
+  - Ollama CPU → fallback on EPYC 56-core
+
+This service provides a local unified API that routes through LiteLLM,
+with direct backend access when needed (e.g., model loading on TabbyAPI).
 """
 
 from __future__ import annotations
@@ -18,7 +24,6 @@ from local_system.models import (
     ChatRequest,
     ChatResponse,
     HealthResponse,
-    ModelBackend,
     ModelInfo,
 )
 from local_system.utils import Timer, generate_id, setup_logging
@@ -41,7 +46,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
 
 
 app = FastAPI(
-    title="Local-System Inference",
+    title="Athanor Inference",
     version="0.1.0",
     lifespan=lifespan,
 )
@@ -64,7 +69,7 @@ async def list_models() -> list[ModelInfo]:
 
 @app.post("/v1/chat/completions")
 async def chat(body: ChatRequest) -> ChatResponse:
-    """Generate a chat completion."""
+    """Generate a chat completion via LiteLLM routing."""
     router: BackendRouter = app.state.router
 
     with Timer() as t:
@@ -106,9 +111,33 @@ async def chat_stream(body: ChatRequest) -> StreamingResponse:
 
 @app.post("/v1/embeddings")
 async def embed(model: str, texts: list[str]) -> dict:
-    """Generate embeddings for input texts."""
+    """Generate embeddings via Ollama (nomic-embed-text)."""
     router: BackendRouter = app.state.router
     try:
         return await router.embed(model, texts)
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e)) from e
+
+
+# --- TabbyAPI-specific endpoints (proxied) ---
+
+
+@app.get("/v1/tabby/model")
+async def tabby_current_model() -> dict:
+    """Get the currently loaded model on TabbyAPI."""
+    router: BackendRouter = app.state.router
+    return await router.tabby_status()
+
+
+@app.post("/v1/tabby/model/load")
+async def tabby_load_model(model_name: str) -> dict:
+    """Load a specific EXL2 model on TabbyAPI."""
+    router: BackendRouter = app.state.router
+    return await router.tabby_load_model(model_name)
+
+
+@app.post("/v1/tabby/model/unload")
+async def tabby_unload_model() -> dict:
+    """Unload the current model from TabbyAPI."""
+    router: BackendRouter = app.state.router
+    return await router.tabby_unload_model()

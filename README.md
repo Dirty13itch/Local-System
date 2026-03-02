@@ -1,66 +1,236 @@
-# Local-System
+# Athanor — Sovereign Cognitive Architecture
 
-A distributed local AI platform spanning 6 hardware-specialized nodes, connected via a 10GbE backbone.
+> *"A second mind — a sovereign cognitive architecture running on privately owned hardware, implementing consciousness-inspired processing patterns, persistent multi-layered memory, autonomous agency, and deep personalization for a single human operator."*
+
+This is not a chatbot. It is not an inference server. It is not a homelab project that happens to run LLMs.
+
+It is a **sovereign cognitive architecture** implementing [Global Workspace Theory](https://en.wikipedia.org/wiki/Global_workspace_theory) — specialized processors competing for access to a shared cognitive workspace, with winners broadcasting their content to all other processors. It accumulates knowledge, context, and capability over months of continuous operation. It doesn't just answer questions; it asks better ones than you would have thought to ask.
+
+---
 
 ## Architecture
 
 ```
-┌─────────────────────────────────────────────────────────────────┐
-│                        10GbE Backbone                           │
-│              (Ubiquiti USW-Pro-XG + UDM Pro)                    │
-├────────┬────────┬────────┬────────┬────────┬────────────────────┤
-│        │        │        │        │        │                    │
-│ Node 1 │ Node 2 │ VAULT  │  DESK  │  DEV   │     MOBILE        │
-│ Infer  │ Infer+ │ Store  │  UI/GW │ CI/CD  │     Client        │
-│ Primary│ Finetune│ + RAG │ + Orch │ + Mon  │                   │
-│        │        │        │        │        │                    │
-│ EPYC   │ TR     │ R9     │ i7     │ R9     │     R9 5900HX     │
-│ 56C    │ 24C    │ 9950X  │ 13700K │ 9900X  │     Laptop        │
-│ 224GB  │ 128GB  │ 128GB  │ 64GB   │ 64GB   │     64GB          │
-│        │        │        │        │        │                    │
-│ 4×5070T│ 5090   │ Arc380 │ 3060   │ 5060Ti │     3070M         │
-│ 1×4090 │ 5060Ti │ 180TB  │ 12GB   │ 16GB   │     8GB           │
-│ 16TB   │ 6TB    │ HDD    │ 3TB    │ 6TB    │     3TB           │
-│ NVMe   │ NVMe   │ 9TB    │ NVMe   │ NVMe   │     NVMe          │
-│        │        │ NVMe   │        │        │                    │
-└────────┴────────┴────────┴────────┴────────┴────────────────────┘
+                              ┌─────────────────────┐
+                              │   COGNITIVE WORKSPACE │
+                              │   (Global Broadcast)  │
+                              │                       │
+                              │  Continuous State      │
+                              │  Tensor (CST)          │
+                              │                       │
+                              │  Attention Mechanism   │
+                              │  Specialist Bidding    │
+                              └──────────┬────────────┘
+                                         │
+           ┌──────────┬──────────┬───────┴───────┬──────────┬──────────┐
+           ▼          ▼          ▼               ▼          ▼          ▼
+     ┌──────────┐┌──────────┐┌──────────┐┌──────────┐┌──────────┐┌──────────┐
+     │ Research  ││ Coding   ││ Creative ││ Building ││ Media    ││ Infra    │
+     │ Agent    ││ Agent    ││ Agent    ││ Science  ││ Agent    ││ Agent    │
+     │          ││          ││(EoBQ)    ││(HERS)    ││          ││          │
+     └────┬─────┘└────┬─────┘└────┬─────┘└────┬─────┘└────┬─────┘└────┬─────┘
+          │           │           │           │           │           │
+          └───────────┴───────────┼───────────┴───────────┴───────────┘
+                                  ▼
+                         ┌─────────────────┐
+                         │  MEMORY FABRIC  │
+                         │                 │
+                         │  6-Tier System  │
+                         │  Procedural     │
+                         │  Working        │
+                         │  Episodic       │
+                         │  Semantic       │
+                         │  Resource       │
+                         │  Knowledge Vault│
+                         └────────┬────────┘
+                                  │
+     ┌──────────┬─────────┬───────┴───────┬─────────┬──────────┐
+     ▼          ▼         ▼               ▼         ▼          ▼
+  ┌──────┐  ┌──────┐  ┌──────┐     ┌──────┐  ┌──────┐  ┌──────┐
+  │Qdrant│  │Neo4j │  │Postgres│   │Redis │  │Meili │  │MinIO │
+  │Vector│  │Graph │  │Relat. │   │Cache │  │Search│  │Files │
+  └──────┘  └──────┘  └──────┘     └──────┘  └──────┘  └──────┘
 ```
 
-## Node Roles
+---
 
-| Node | Role | Description |
-|------|------|-------------|
-| **Node 1** | Inference Primary | Multi-GPU model serving across 5 GPUs. Handles bulk inference, parallel requests, and large batch processing. |
-| **Node 2** | Inference Secondary + Fine-tuning | RTX 5090 for large single-model inference. Fine-tuning, LoRA training, and overflow from Node 1. |
-| **VAULT** | Storage + Vector DB + Data Pipeline | 180TB HDD array for bulk storage. Hosts vector databases, document ingestion pipeline, PostgreSQL, and model repository. |
-| **DESK** | UI + API Gateway + Orchestrator | User-facing web UI, API gateway, and agent orchestration engine. Primary interaction point. |
-| **DEV** | Development + CI/CD + Monitoring | Dev environment, testing, CI/CD pipelines, Prometheus/Grafana monitoring. Can serve inference with 5060 Ti. |
-| **MOBILE** | Remote Client | Thin client for remote access. Can run small models locally for offline use. |
+## Hardware Topology
 
-## Services
+Six hardware-specialized nodes connected via 10GbE backbone (9.4 Gbps validated):
 
-| Service | Port | Description |
-|---------|------|-------------|
-| `gateway` | 8000 | API Gateway — routes requests, auth, rate limiting |
-| `inference` | 8001 | LLM inference with pluggable backends (Ollama, vLLM, llama.cpp) |
-| `orchestrator` | 8002 | Agent orchestration, tool execution, workflow management |
-| `rag` | 8003 | Document ingestion, embedding, retrieval pipeline |
-| `storage` | 8004 | File management, model repository, S3-compatible API |
-| `model-manager` | 8005 | Model lifecycle — download, convert, distribute, monitor |
-| `ui` | 3000 | Next.js web interface |
+| Node | Hardware | Role | OS | IP |
+|------|----------|------|----|----|
+| **hydra-ai** | TR 7960X · 128GB DDR5 · **RTX 5090 32GB + RTX 4090 24GB** | Primary inference (70B+ TP) | NixOS | 192.168.1.250 |
+| **hydra-compute** | R9 9950X · 64GB DDR5 · **2× RTX 5070 Ti 16GB** | Secondary inference, ComfyUI, TTS | NixOS | 192.168.1.203 |
+| **hydra-storage** | EPYC 7663 56C · 256GB DDR4 ECC · Arc A380 | Orchestration brain, databases, services | Unraid | 192.168.1.244 |
+| **hydra-dev** | 16 vCPU · 64GB (VM on EPYC) | Development, IDE, Claude Code | Ubuntu 24.04 | DHCP |
+| **DESK** | i7-13700K · 64GB DDR5 | Workstation, Parsec remote desktop | TBD | TBD |
+| **MOBILE** | Laptop | Mobile access, thin client | TBD | TBD |
 
-## Tech Stack
+### GPU Allocation (138GB VRAM total)
 
-- **Backend**: Python 3.12+ (FastAPI, gRPC)
-- **Frontend**: Next.js 15 / React 19 / TypeScript
-- **Inference**: Ollama, vLLM, llama-cpp-python (pluggable)
-- **Vector DB**: Qdrant
-- **Database**: PostgreSQL 16
-- **Cache/Queue**: Redis 7
-- **Inter-service**: gRPC (internal), REST (external), WebSocket (streaming)
-- **Containers**: Docker + Docker Compose per node
-- **Monitoring**: Prometheus + Grafana
-- **Network**: 10GbE backbone (Ubiquiti)
+| GPU | Node | Purpose |
+|-----|------|---------|
+| RTX 5090 32GB + RTX 4090 24GB | hydra-ai | 56GB tensor parallel via ExLlamaV2/TabbyAPI (70B models) |
+| 2× RTX 5070 Ti 16GB | hydra-compute | Ollama (7B-14B fast), ComfyUI image gen, Kokoro TTS |
+| Arc A380 6GB | hydra-storage | Plex transcoding (Quick Sync), frees EPYC for orchestration |
+
+### Inference Stack (Proven Architecture)
+
+```
+                    Clients
+                       │
+                       ▼
+              ┌─────────────────┐
+              │     LiteLLM     │  OpenAI-compatible gateway
+              │  storage:4000   │  Model routing + fallback
+              └──┬──────┬───┬──┘
+                 │      │   │
+     ┌───────────┘      │   └───────────┐
+     ▼                  ▼               ▼
+┌──────────┐    ┌──────────┐    ┌──────────┐
+│ TabbyAPI  │    │  Ollama  │    │  Ollama  │
+│  + ExL2   │    │   GPU    │    │   CPU    │
+│ ai:5000   │    │compute:  │    │storage:  │
+│           │    │ 11434    │    │ 11434    │
+│ 70B models│    │ 7B-14B   │    │ fallback │
+│ 5090+4090 │    │ 5070 Ti  │    │ EPYC     │
+└──────────┘    └──────────┘    └──────────┘
+```
+
+**Why ExLlamaV2**: Only engine supporting tensor parallelism across heterogeneous GPUs (5090 32GB + 4090 24GB). Battle-tested. vLLM does NOT work for this use case.
+
+---
+
+## Service Map
+
+### Core Cognitive Services
+| Service | Port | Node | Purpose |
+|---------|------|------|---------|
+| Gateway API | 8700 | storage | REST/SSE/WebSocket entry point |
+| Cognitive Workspace | 8701 | storage | GWT attention mechanism, specialist routing |
+| Memory Service | 8702 | storage | 6-tier memory read/write/consolidation |
+| Orchestrator | 8703 | storage | Agent lifecycle, task management |
+
+### Inference
+| Service | Port | Node | Purpose |
+|---------|------|------|---------|
+| LiteLLM | 4000 | storage | Unified API gateway, model routing |
+| TabbyAPI | 5000 | ai | ExLlamaV2 70B inference (TP across 5090+4090) |
+| Ollama GPU | 11434 | compute | Fast 7B-14B models on 5070 Ti |
+| Ollama CPU | 11434 | storage | Fallback on EPYC 56-core |
+
+### Knowledge & Memory
+| Service | Port | Node | Purpose |
+|---------|------|------|---------|
+| PostgreSQL 16 | 5432 | storage | Relational data, agent state |
+| Qdrant | 6333 | storage | Vector embeddings (768d, nomic-embed-text) |
+| Neo4j | 7474/7687 | storage | Knowledge graphs (Graphiti) |
+| Redis 7 | 6379 | storage | Cache, sessions, pub/sub, working memory |
+| Meilisearch | 7700 | storage | Full-text BM25 search |
+| MinIO | 9000 | storage | S3-compatible file/model storage |
+
+### Creative Pipeline
+| Service | Port | Node | Purpose |
+|---------|------|------|---------|
+| ComfyUI | 8188 | compute | Image generation (PonyXL, LoRA, ControlNet) |
+| Kokoro TTS | 8880 | storage | Voice synthesis with per-character emotion |
+
+### Monitoring & Automation
+| Service | Port | Node | Purpose |
+|---------|------|------|---------|
+| Prometheus | 9090 | storage | Metrics collection |
+| Grafana | 3003 | storage | Dashboards |
+| n8n | 5678 | storage | Visual workflow automation |
+| Uptime Kuma | 3004 | storage | Service health monitoring |
+
+---
+
+## Memory Architecture (6-Tier Cognitive System)
+
+| Tier | Purpose | Storage | Volatility |
+|------|---------|---------|------------|
+| **Procedural** | How to do things (conventions, commands, routing rules) | Versioned files | Permanent |
+| **Working** | Active context, current task state, recent operations | Redis + YAML | Volatile |
+| **Episodic** | What happened when (conversations, task outcomes, events) | Qdrant + Graphiti | Consolidates |
+| **Semantic** | Knowledge graph — entities, relationships, temporal validity | Neo4j (Graphiti) | Grows |
+| **Resource** | Ingested documents, code, research papers | Qdrant (chunked+embedded) | Permanent |
+| **Knowledge Vault** | Validated high-confidence facts promoted from other tiers | PostgreSQL + Qdrant | Permanent |
+
+Memory consolidation happens during idle periods — episodic memories distill into semantic knowledge, connections are discovered, and the system's understanding deepens.
+
+---
+
+## Project Structure
+
+```
+Local-System/
+├── README.md                          # You are here
+├── VISION.md                          # North star — what this system becomes
+├── CONSTITUTION.yaml                  # Immutable safety constraints
+├── .env.example                       # Configuration template
+├── Makefile                           # Build, deploy, test commands
+├── pyproject.toml                     # Python tooling config
+│
+├── shared/python/local_system/        # Shared library
+│   ├── config.py                      # Pydantic Settings — nodes, network, services
+│   ├── models.py                      # Shared data models — cognitive types, memory, agents
+│   └── utils.py                       # Logging, timers, client helpers
+│
+├── proto/                             # gRPC service definitions
+│   ├── common.proto
+│   ├── inference.proto
+│   ├── cognitive.proto                # GWT workspace protocol
+│   ├── memory.proto                   # Memory tier operations
+│   ├── rag.proto
+│   └── storage.proto
+│
+├── services/
+│   ├── gateway/                       # API gateway — REST, SSE, WebSocket
+│   ├── inference/                     # LiteLLM integration + backend routing
+│   │   └── backends/
+│   │       ├── tabby.py               # TabbyAPI/ExLlamaV2 (primary 70B)
+│   │       ├── ollama.py              # Ollama (7B-14B GPU + CPU fallback)
+│   │       └── litellm_router.py      # LiteLLM unified routing
+│   ├── memory/                        # 6-tier cognitive memory system
+│   ├── cognitive/                     # GWT workspace — attention, broadcast, CST
+│   ├── orchestrator/                  # Agent lifecycle — tools, tasks, crews
+│   ├── rag/                           # Hybrid search: Qdrant vectors + Meilisearch BM25
+│   └── storage/                       # File/model management, MinIO integration
+│
+├── ui/                                # Next.js 15 + React 19 command center
+│   └── src/
+│       ├── app/                       # Pages: Chat, Memory, Agents, Nodes, Knowledge
+│       ├── components/                # Sidebar, Chat, MemoryViewer, NodeStatus
+│       └── lib/                       # API client, SSE helpers
+│
+├── deploy/                            # Per-node Docker Compose
+│   ├── hydra-ai/                      # TabbyAPI, inference service
+│   ├── hydra-compute/                 # Ollama, ComfyUI, TTS
+│   ├── hydra-storage/                 # Everything else (EPYC orchestration brain)
+│   ├── hydra-dev/                     # Development tools
+│   ├── desk/                          # Workstation services
+│   └── mobile/                        # Mobile access
+│
+├── scripts/                           # Setup, health checks, deployment
+│   ├── setup.sh
+│   ├── health-check.sh
+│   └── deploy.sh
+│
+├── tests/                             # Test suite
+│   ├── conftest.py
+│   ├── test_config.py
+│   ├── test_models.py
+│   └── integration/
+│
+└── knowledge/                         # Domain knowledge (from Hydra)
+    ├── infrastructure.md
+    ├── inference-stack.md
+    ├── databases.md
+    └── learnings.md
+```
+
+---
 
 ## Quick Start
 
@@ -68,63 +238,31 @@ A distributed local AI platform spanning 6 hardware-specialized nodes, connected
 # 1. Clone and configure
 git clone <repo-url> && cd Local-System
 cp .env.example .env
-# Edit .env with your node-specific settings
+# Edit .env with your node IPs, credentials, model paths
 
 # 2. Install shared library
-pip install -e shared/python
+pip install -e shared/python/
 
-# 3. Start services on current node
-make up NODE=desk  # or node1, node2, vault, dev, mobile
+# 3. Start services on each node
+make deploy NODE=hydra-storage   # Databases, orchestration, gateway
+make deploy NODE=hydra-ai        # TabbyAPI inference
+make deploy NODE=hydra-compute   # Ollama, ComfyUI
 
-# 4. Deploy to all nodes
-make deploy-all
+# 4. Verify
+make health                      # Check all nodes
 ```
 
-## Development
+---
 
-```bash
-# Run all tests
-make test
+## Lineage
 
-# Run a specific service locally
-make dev SERVICE=gateway
+This project is the successor to:
+- **Hydra** — First active implementation (Dec 2025, 65 commits, 370+ API endpoints, 12 phases completed)
+- **Kaizen** (改善) — The design philosophy of continuous improvement
+- **Athanor** — Current codename (alchemical furnace that transmutes base materials into gold)
+- **System Bible** — Canonical documentation repository for the vision
 
-# Generate gRPC stubs from proto files
-make proto
+---
 
-# Check system health across all nodes
-make health
-
-# View logs
-make logs NODE=node1 SERVICE=inference
-```
-
-## Project Structure
-
-```
-Local-System/
-├── proto/                  # gRPC protocol buffer definitions
-├── shared/                 # Shared libraries
-│   ├── python/             # Python shared package
-│   └── typescript/         # TypeScript shared types
-├── services/               # Backend microservices
-│   ├── gateway/            # API Gateway
-│   ├── inference/          # LLM Inference Engine
-│   ├── orchestrator/       # Agent Orchestrator
-│   ├── rag/                # RAG Pipeline
-│   ├── storage/            # Storage Service
-│   └── model-manager/      # Model Lifecycle Manager
-├── ui/                     # Next.js Web UI
-├── deploy/                 # Per-node deployment configs
-│   ├── node1/
-│   ├── node2/
-│   ├── vault/
-│   ├── desk/
-│   ├── dev/
-│   └── mobile/
-├── scripts/                # Utility scripts
-├── tests/                  # Integration & E2E tests
-├── monitoring/             # Prometheus/Grafana configs
-├── Makefile                # Build & deploy commands
-└── docker-compose.yml      # Root compose file
-```
+*Status: Restructuring scaffold to align with sovereign cognitive architecture vision*
+*Last updated: March 2026*
