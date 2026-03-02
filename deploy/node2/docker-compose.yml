@@ -1,0 +1,40 @@
+# Node 2 — Secondary Inference + Fine-tuning
+# Threadripper 24C/48T · 128GB · RTX 5090 + RTX 5060 Ti
+#
+# Services: inference (secondary), ollama
+
+services:
+  ollama:
+    image: ollama/ollama:latest
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama-data:/root/.ollama
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    restart: unless-stopped
+
+  inference:
+    build:
+      context: ../..
+      dockerfile: services/inference/Dockerfile
+    ports:
+      - "${INFERENCE_PORT:-8001}:8001"
+      - "${INFERENCE_GRPC_PORT:-50051}:50051"
+    env_file:
+      - ../../.env
+    environment:
+      - NODE_NAME=node2
+      - NODE_ROLE=inference
+      - OLLAMA_HOST=http://ollama:11434
+    depends_on:
+      - ollama
+    restart: unless-stopped
+
+volumes:
+  ollama-data:

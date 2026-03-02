@@ -1,0 +1,63 @@
+# Environment
+.env
+.env.local
+.env.*.local
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+dist/
+build/
+*.egg
+.venv/
+venv/
+.mypy_cache/
+.pytest_cache/
+.ruff_cache/
+htmlcov/
+.coverage
+*.so
+
+# Node
+node_modules/
+.next/
+out/
+.turbo/
+
+# Generated gRPC stubs
+shared/python/local_system/proto/*_pb2*.py
+shared/python/local_system/proto/*_pb2*.pyi
+shared/typescript/src/proto/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Docker
+docker-compose.override.yml
+
+# Data & Models (large files)
+/data/
+/models/
+*.gguf
+*.safetensors
+*.bin
+*.onnx
+
+# Logs
+logs/
+*.log
+
+# Secrets
+*.pem
+*.key
+credentials/

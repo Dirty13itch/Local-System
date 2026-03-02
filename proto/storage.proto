@@ -1,0 +1,101 @@
+syntax = "proto3";
+
+package local_system;
+
+import "common.proto";
+
+option go_package = "github.com/Dirty13itch/Local-System/proto";
+
+// Storage service — file management and model repository.
+
+service StorageService {
+  rpc Upload(stream FileChunk) returns (UploadResponse);
+  rpc Download(DownloadRequest) returns (stream FileChunk);
+  rpc Delete(FileRequest) returns (DeleteFileResponse);
+  rpc ListFiles(ListFilesRequest) returns (FileList);
+  rpc GetFileInfo(FileRequest) returns (FileInfo);
+  rpc ListModels(Empty) returns (ModelRepoList);
+  rpc GetModel(ModelRequest) returns (ModelRepoEntry);
+  rpc RegisterModel(RegisterModelRequest) returns (ModelRepoEntry);
+  rpc Health(HealthRequest) returns (HealthResponse);
+}
+
+message FileChunk {
+  string file_id = 1;
+  string filename = 2;
+  bytes data = 3;
+  int64 offset = 4;
+  int64 total_size = 5;
+  map<string, string> metadata = 6;
+}
+
+message UploadResponse {
+  string file_id = 1;
+  string path = 2;
+  int64 size_bytes = 3;
+  string checksum = 4;
+}
+
+message DownloadRequest {
+  string file_id = 1;
+}
+
+message FileRequest {
+  string file_id = 1;
+}
+
+message ListFilesRequest {
+  string prefix = 1;
+  int32 limit = 2;
+  int32 offset = 3;
+}
+
+message FileInfo {
+  string id = 1;
+  string filename = 2;
+  string path = 3;
+  int64 size_bytes = 4;
+  string content_type = 5;
+  string checksum = 6;
+  int64 created_at = 7;
+  map<string, string> metadata = 8;
+}
+
+message FileList {
+  repeated FileInfo files = 1;
+  int32 total = 2;
+}
+
+message DeleteFileResponse {
+  bool success = 1;
+}
+
+message ModelRequest {
+  string model_id = 1;
+}
+
+message RegisterModelRequest {
+  string name = 1;
+  string backend = 2;
+  string file_id = 3;
+  string quantization = 4;
+  string parameter_count = 5;
+  int32 context_length = 6;
+  map<string, string> metadata = 7;
+}
+
+message ModelRepoEntry {
+  string id = 1;
+  string name = 2;
+  string backend = 3;
+  string file_id = 4;
+  int64 size_bytes = 5;
+  string quantization = 6;
+  string parameter_count = 7;
+  int32 context_length = 8;
+  int64 registered_at = 9;
+}
+
+message ModelRepoList {
+  repeated ModelRepoEntry models = 1;
+}

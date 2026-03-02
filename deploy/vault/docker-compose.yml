@@ -1,0 +1,70 @@
+# VAULT — Storage + Vector DB + Data Pipeline
+# Ryzen 9 9950X · 128GB · Intel Arc A380 · 180TB HDD + 9TB NVMe
+#
+# Services: storage, rag, qdrant, postgresql, redis
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    environment:
+      - POSTGRES_DB=${POSTGRES_DB:-local_system}
+      - POSTGRES_USER=${POSTGRES_USER:-local_system}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-changeme}
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    restart: unless-stopped
+
+  qdrant:
+    image: qdrant/qdrant:latest
+    ports:
+      - "${QDRANT_PORT:-6333}:6333"
+      - "${QDRANT_GRPC_PORT:-6334}:6334"
+    volumes:
+      - qdrant-data:/qdrant/storage
+    restart: unless-stopped
+
+  storage:
+    build:
+      context: ../..
+      dockerfile: services/storage/Dockerfile
+    ports:
+      - "${STORAGE_PORT:-8004}:8004"
+      - "${STORAGE_GRPC_PORT:-50054}:50054"
+    env_file:
+      - ../../.env
+    environment:
+      - NODE_NAME=vault
+      - NODE_ROLE=storage
+      - STORAGE_DATA_DIR=/data
+    volumes:
+      - storage-files:/data/files
+      - storage-models:/data/models
+      # Mount the HDD array for bulk storage
+      # - /mnt/hdd-array:/mnt/hdd-array
+    depends_on:
+      - postgres
+    restart: unless-stopped
+
+  rag:
+    build:
+      context: ../..
+      dockerfile: services/rag/Dockerfile
+    ports:
+      - "${RAG_PORT:-8003}:8003"
+      - "${RAG_GRPC_PORT:-50053}:50053"
+    env_file:
+      - ../../.env
+    environment:
+      - NODE_NAME=vault
+      - NODE_ROLE=storage
+    depends_on:
+      - qdrant
+    restart: unless-stopped
+
+volumes:
+  postgres-data:
+  qdrant-data:
+  storage-files:
+  storage-models:

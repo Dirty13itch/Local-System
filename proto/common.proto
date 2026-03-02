@@ -1,0 +1,29 @@
+syntax = "proto3";
+
+package local_system;
+
+option go_package = "github.com/Dirty13itch/Local-System/proto";
+
+// Shared message types used across services.
+
+message Empty {}
+
+message HealthRequest {}
+
+message HealthResponse {
+  string status = 1;
+  string service = 2;
+  string version = 3;
+  string node = 4;
+  double uptime_seconds = 5;
+}
+
+message TokenUsage {
+  int32 prompt_tokens = 1;
+  int32 completion_tokens = 2;
+  int32 total_tokens = 3;
+}
+
+message Metadata {
+  map<string, string> values = 1;
+}
