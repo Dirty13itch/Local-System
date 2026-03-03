@@ -1,6 +1,6 @@
 .PHONY: help up down restart logs dev test lint proto deploy health clean
 
-NODE ?= hydra-storage
+NODE ?= vault
 SERVICE ?= all
 COMPOSE = docker compose
 DEPLOY_COMPOSE = $(COMPOSE) -f deploy/$(NODE)/docker-compose.yml
@@ -23,34 +23,34 @@ install: ## Install all dependencies
 
 # --- Docker Operations ---
 
-up: ## Start services on a node (NODE=hydra-storage)
+up: ## Start services on a node (NODE=vault)
 	$(DEPLOY_COMPOSE) up -d
 
-down: ## Stop services on a node (NODE=hydra-storage)
+down: ## Stop services on a node (NODE=vault)
 	$(DEPLOY_COMPOSE) down
 
-restart: ## Restart services on a node (NODE=hydra-storage)
+restart: ## Restart services on a node (NODE=vault)
 	$(DEPLOY_COMPOSE) restart
 
-logs: ## View logs (NODE=hydra-storage SERVICE=gateway)
+logs: ## View logs (NODE=vault SERVICE=gateway)
 ifeq ($(SERVICE),all)
 	$(DEPLOY_COMPOSE) logs -f --tail=100
 else
 	$(DEPLOY_COMPOSE) logs -f --tail=100 $(SERVICE)
 endif
 
-build: ## Build Docker images (NODE=hydra-storage)
+build: ## Build Docker images (NODE=vault)
 	$(DEPLOY_COMPOSE) build
 
 # --- Deployment ---
 
-deploy: ## Deploy to a specific node (NODE=hydra-storage)
+deploy: ## Deploy to a specific node (NODE=vault)
 	@echo "Deploying to $(NODE)..."
 	$(DEPLOY_COMPOSE) pull
 	$(DEPLOY_COMPOSE) up -d --remove-orphans
 
 deploy-all: ## Deploy to all nodes
-	@for node in hydra-ai hydra-compute hydra-storage; do \
+	@for node in foundry workshop vault; do \
 		echo "=== Deploying to $$node ==="; \
 		$(COMPOSE) -f deploy/$$node/docker-compose.yml up -d --remove-orphans; \
 	done
@@ -91,7 +91,7 @@ format: ## Auto-format code
 health: ## Check health of all nodes
 	@bash scripts/health-check.sh
 
-status: ## Show running services on a node (NODE=hydra-storage)
+status: ## Show running services on a node (NODE=vault)
 	$(DEPLOY_COMPOSE) ps
 
 # --- Cleanup ---

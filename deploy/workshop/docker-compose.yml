@@ -1,18 +1,11 @@
-# hydra-compute — Secondary Inference + Image Gen + TTS
-# Ryzen 9 9950X · 64GB DDR5 · 2× RTX 5070 Ti 16GB
-# OS: NixOS · IP: 192.168.1.203
+# WORKSHOP — Fast Inference + Creative Pipeline
+# Specs populated by scripts/discover.sh
 #
-# Ollama runs as a NixOS systemd service (not Docker) for direct GPU access.
+# vLLM runs as a systemd service (not Docker) for direct GPU access.
 # This compose file is for auxiliary services.
-#
-# Ollama is configured in /etc/nixos/configuration.nix:
-#   services.ollama (CUDA, port 11434)
-#
-# ComfyUI is for image generation (PonyXL, LoRA, ControlNet):
-#   Port 8188
 
 services:
-  # ComfyUI for image generation
+  # ComfyUI for image generation (Flux + Wan2.2)
   comfyui:
     image: ghcr.io/ai-dock/comfyui:latest
     ports:

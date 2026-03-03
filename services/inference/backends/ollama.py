@@ -1,8 +1,6 @@
 """Ollama inference backend — 7B-14B fast models + CPU fallback.
 
-Two instances:
-  - GPU (hydra-compute:11434) — 5070 Ti x2 for fast 7B-14B inference
-  - CPU (hydra-storage:11434) — EPYC 56-core fallback when GPUs busy
+Legacy backend kept for compatibility. Primary inference now uses vLLM.
 """
 
 from __future__ import annotations

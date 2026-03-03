@@ -13,11 +13,11 @@ if [ -f "$PROJECT_DIR/.env" ]; then
     set +a
 fi
 
-# Node SSH targets — use env vars or defaults matching actual infrastructure
+# Node SSH targets — uses ~/.ssh/config aliases set up by setup-dev.sh
 declare -A NODES=(
-    [hydra-ai]="${HYDRA_AI_SSH:-root@192.168.1.250}"
-    [hydra-compute]="${HYDRA_COMPUTE_SSH:-root@192.168.1.203}"
-    [hydra-storage]="${HYDRA_STORAGE_SSH:-root@192.168.1.244}"
+    [foundry]="foundry"
+    [workshop]="workshop"
+    [vault]="vault"
 )
 
 DEPLOY_DIR="/opt/local-system"
@@ -47,6 +47,9 @@ deploy_node() {
         --exclude='.env' \
         "$PROJECT_DIR/" "$ssh_target:$DEPLOY_DIR/"
 
+    # Copy .env to remote
+    scp "$PROJECT_DIR/.env" "$ssh_target:$DEPLOY_DIR/.env"
+
     # Build and start services
     ssh "$ssh_target" "cd $DEPLOY_DIR && docker compose -f deploy/$node/docker-compose.yml up -d --build --remove-orphans"
 
@@ -67,4 +70,4 @@ else
     deploy_node "$TARGET"
 fi
 
-echo "Deployment complete. Check health with: curl http://192.168.1.244:8700/health/cluster"
+echo "Deployment complete. Check health: bash scripts/health-check.sh"

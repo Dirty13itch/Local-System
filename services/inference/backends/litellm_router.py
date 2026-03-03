@@ -1,10 +1,9 @@
 """LiteLLM Router — unified API gateway for all inference backends.
 
-LiteLLM runs on hydra-storage:4000 and routes requests:
-  - llama-70b, gpt-4 → TabbyAPI (hydra-ai:5000)
-  - qwen2.5-7b, gpt-3.5-turbo → Ollama GPU (hydra-compute:11434)
-  - text-embedding-nomic → Ollama GPU (hydra-compute:11434)
-  - llama-7b-cpu → Ollama CPU (hydra-storage:11434)
+LiteLLM runs on VAULT:4000 and routes requests to vLLM instances:
+  - reasoning → vLLM on FOUNDRY:8000
+  - fast → vLLM on WORKSHOP:8000
+  - embedding → vLLM on FOUNDRY:8001
 """
 
 from __future__ import annotations

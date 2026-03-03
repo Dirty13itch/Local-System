@@ -10,42 +10,43 @@ from pydantic_settings import BaseSettings
 
 
 class NodeName(str, Enum):
-    HYDRA_AI = "hydra-ai"
-    HYDRA_COMPUTE = "hydra-compute"
-    HYDRA_STORAGE = "hydra-storage"
-    HYDRA_DEV = "hydra-dev"
+    FOUNDRY = "foundry"
+    WORKSHOP = "workshop"
+    VAULT = "vault"
+    DEV = "dev"
     DESK = "desk"
     MOBILE = "mobile"
 
 
 class NodeRole(str, Enum):
-    INFERENCE = "inference"          # hydra-ai: TabbyAPI/ExLlamaV2 70B
-    COMPUTE = "compute"              # hydra-compute: Ollama GPU, ComfyUI, TTS
-    ORCHESTRATOR = "orchestrator"    # hydra-storage: EPYC brain, DBs, services
-    DEV = "dev"                      # hydra-dev: development VM
-    CLIENT = "client"                # desk/mobile: thin clients
+    INFERENCE = "inference"          # FOUNDRY: vLLM heavy models (5090 + 4090)
+    CREATIVE = "creative"            # WORKSHOP: vLLM fast, ComfyUI, TTS
+    ORCHESTRATOR = "orchestrator"    # VAULT: EPYC brain, DBs, services
+    OPERATIONS = "operations"        # DEV: Claude Code, Ansible, ops center
+    CLIENT = "client"                # DESK/MOBILE: thin clients
 
 
 class NodeConfig(BaseSettings):
     """Identity and role of this node."""
 
-    name: NodeName = Field(default=NodeName.HYDRA_STORAGE, alias="NODE_NAME")
-    role: NodeRole = Field(default=NodeRole.ORCHESTRATOR, alias="NODE_ROLE")
+    name: NodeName = Field(default=NodeName.DEV, alias="NODE_NAME")
+    role: NodeRole = Field(default=NodeRole.OPERATIONS, alias="NODE_ROLE")
 
 
 class NetworkConfig(BaseSettings):
     """Addresses of all nodes in the cluster."""
 
-    hydra_ai: str = Field(default="192.168.1.250", alias="HYDRA_AI_HOST")
-    hydra_compute: str = Field(default="192.168.1.203", alias="HYDRA_COMPUTE_HOST")
-    hydra_storage: str = Field(default="192.168.1.244", alias="HYDRA_STORAGE_HOST")
+    foundry: str = Field(default="changeme", alias="FOUNDRY_HOST")
+    workshop: str = Field(default="changeme", alias="WORKSHOP_HOST")
+    vault: str = Field(default="changeme", alias="VAULT_HOST")
+    dev: str = Field(default="192.168.1.189", alias="DEV_HOST")
 
     def host_for(self, node: NodeName) -> str:
         return {
-            NodeName.HYDRA_AI: self.hydra_ai,
-            NodeName.HYDRA_COMPUTE: self.hydra_compute,
-            NodeName.HYDRA_STORAGE: self.hydra_storage,
-            NodeName.HYDRA_DEV: self.hydra_storage,  # VM on storage
+            NodeName.FOUNDRY: self.foundry,
+            NodeName.WORKSHOP: self.workshop,
+            NodeName.VAULT: self.vault,
+            NodeName.DEV: self.dev,
             NodeName.DESK: "0.0.0.0",
             NodeName.MOBILE: "0.0.0.0",
         }[node]
@@ -58,42 +59,36 @@ class ServicePorts(BaseSettings):
     memory: int = Field(default=8702, alias="MEMORY_PORT")
     orchestrator: int = Field(default=8703, alias="ORCHESTRATOR_PORT")
     rag: int = Field(default=8704, alias="RAG_PORT")
-    ui: int = Field(default=3200, alias="UI_PORT")
+    agent_server: int = Field(default=9000, alias="AGENT_SERVER_PORT")
+    ui: int = Field(default=3001, alias="UI_PORT")
 
-    # External services (not managed by us, but we connect to them)
+    # External services
     litellm: int = Field(default=4000)
-    tabby: int = Field(default=5000)
-    ollama_gpu: int = Field(default=11434)
-    ollama_cpu: int = Field(default=11434)
+    vllm_reasoning: int = Field(default=8000)
+    vllm_fast: int = Field(default=8000)
+    vllm_embedding: int = Field(default=8001)
 
 
 class InferenceConfig(BaseSettings):
-    """Inference stack configuration — LiteLLM + TabbyAPI + Ollama."""
+    """Inference stack configuration — LiteLLM routing to vLLM instances."""
 
     # LiteLLM is the single entry point for all inference
-    litellm_host: str = Field(default="http://192.168.1.244:4000", alias="LITELLM_HOST")
+    litellm_host: str = Field(default="http://${VAULT_HOST}:4000", alias="LITELLM_HOST")
     litellm_key: str = Field(default="changeme", alias="LITELLM_KEY")
 
-    # TabbyAPI + ExLlamaV2 (primary — 70B models via tensor parallel)
-    tabby_host: str = Field(default="http://192.168.1.250:5000", alias="TABBY_HOST")
-    tabby_model_dir: str = Field(default="/mnt/models/exl2", alias="TABBY_MODEL_DIR")
-    tabby_gpu_split: str = Field(default="auto", alias="TABBY_GPU_SPLIT")
-    tabby_max_seq_len: int = Field(default=32768, alias="TABBY_MAX_SEQ_LEN")
-
-    # Ollama GPU (secondary — 7B-14B on 5070 Ti)
-    ollama_gpu_host: str = Field(default="http://192.168.1.203:11434", alias="OLLAMA_GPU_HOST")
-
-    # Ollama CPU (fallback — EPYC 56-core)
-    ollama_cpu_host: str = Field(default="http://192.168.1.244:11434", alias="OLLAMA_CPU_HOST")
+    # vLLM instances (ports set after GPU discovery)
+    vllm_reasoning_host: str = Field(default="http://${FOUNDRY_HOST}:8000", alias="VLLM_REASONING_HOST")
+    vllm_fast_host: str = Field(default="http://${WORKSHOP_HOST}:8000", alias="VLLM_FAST_HOST")
+    vllm_embedding_host: str = Field(default="http://${FOUNDRY_HOST}:8001", alias="VLLM_EMBEDDING_HOST")
 
 
 class DatabaseConfig(BaseSettings):
     """PostgreSQL configuration."""
 
-    host: str = Field(default="192.168.1.244", alias="POSTGRES_HOST")
+    host: str = Field(default="${VAULT_HOST}", alias="POSTGRES_HOST")
     port: int = Field(default=5432, alias="POSTGRES_PORT")
-    name: str = Field(default="athanor", alias="POSTGRES_DB")
-    user: str = Field(default="hydra", alias="POSTGRES_USER")
+    name: str = Field(default="local_system", alias="POSTGRES_DB")
+    user: str = Field(default="local_system", alias="POSTGRES_USER")
     password: str = Field(default="changeme", alias="POSTGRES_PASSWORD")
 
     @property
@@ -106,9 +101,9 @@ class DatabaseConfig(BaseSettings):
 
 
 class RedisConfig(BaseSettings):
-    """Redis configuration — cache, sessions, working memory, pub/sub."""
+    """Redis 8 — cache, sessions, working memory, task queue, pub/sub."""
 
-    host: str = Field(default="192.168.1.244", alias="REDIS_HOST")
+    host: str = Field(default="${VAULT_HOST}", alias="REDIS_HOST")
     port: int = Field(default=6379, alias="REDIS_PORT")
     password: str = Field(default="changeme", alias="REDIS_PASSWORD")
 
@@ -118,17 +113,17 @@ class RedisConfig(BaseSettings):
 
 
 class QdrantConfig(BaseSettings):
-    """Qdrant vector database — episodic + resource memory."""
+    """Qdrant v1.17 vector database — episodic + resource memory."""
 
-    host: str = Field(default="192.168.1.244", alias="QDRANT_HOST")
+    host: str = Field(default="${VAULT_HOST}", alias="QDRANT_HOST")
     port: int = Field(default=6333, alias="QDRANT_PORT")
     grpc_port: int = Field(default=6334, alias="QDRANT_GRPC_PORT")
 
 
 class Neo4jConfig(BaseSettings):
-    """Neo4j knowledge graph — semantic memory via Graphiti."""
+    """Neo4j knowledge graph — semantic memory."""
 
-    host: str = Field(default="192.168.1.244", alias="NEO4J_HOST")
+    host: str = Field(default="${VAULT_HOST}", alias="NEO4J_HOST")
     http_port: int = Field(default=7474, alias="NEO4J_HTTP_PORT")
     bolt_port: int = Field(default=7687, alias="NEO4J_BOLT_PORT")
     user: str = Field(default="neo4j", alias="NEO4J_USER")
@@ -139,23 +134,11 @@ class Neo4jConfig(BaseSettings):
         return f"bolt://{self.host}:{self.bolt_port}"
 
 
-class MeilisearchConfig(BaseSettings):
-    """Meilisearch — BM25 full-text search for hybrid search."""
-
-    host: str = Field(default="192.168.1.244", alias="MEILISEARCH_HOST")
-    port: int = Field(default=7700, alias="MEILISEARCH_PORT")
-    key: str = Field(default="changeme", alias="MEILISEARCH_KEY")
-
-    @property
-    def url(self) -> str:
-        return f"http://{self.host}:{self.port}"
-
-
 class RAGConfig(BaseSettings):
     """RAG pipeline configuration — hybrid search."""
 
-    embedding_model: str = Field(default="nomic-embed-text", alias="EMBEDDING_MODEL")
-    embedding_dimensions: int = Field(default=768, alias="EMBEDDING_DIMENSIONS")
+    embedding_model: str = Field(default="Qwen3-Embedding-0.6B", alias="EMBEDDING_MODEL")
+    embedding_dimensions: int = Field(default=1024, alias="EMBEDDING_DIMENSIONS")
     chunk_size: int = Field(default=512, alias="CHUNK_SIZE")
     chunk_overlap: int = Field(default=64, alias="CHUNK_OVERLAP")
     hybrid_search_alpha: float = Field(default=0.7, alias="HYBRID_SEARCH_ALPHA")
@@ -172,7 +155,6 @@ class Settings(BaseSettings):
     redis: RedisConfig = Field(default_factory=RedisConfig)
     qdrant: QdrantConfig = Field(default_factory=QdrantConfig)
     neo4j: Neo4jConfig = Field(default_factory=Neo4jConfig)
-    meilisearch: MeilisearchConfig = Field(default_factory=MeilisearchConfig)
     rag: RAGConfig = Field(default_factory=RAGConfig)
 
     log_level: str = Field(default="INFO", alias="LOG_LEVEL")

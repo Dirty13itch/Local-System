@@ -1,4 +1,4 @@
-"""Tests for Athanor shared data models."""
+"""Tests for Local-System shared data models."""
 
 from datetime import datetime
 
@@ -69,7 +69,7 @@ def test_model_info():
         quantization="EXL2-3.5bpw",
         context_length=32768,
         loaded=True,
-        node="hydra-ai",
+        node="foundry",
     )
     assert info.backend == ModelBackend.TABBY
     assert info.context_length == 32768

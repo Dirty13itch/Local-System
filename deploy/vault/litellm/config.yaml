@@ -2,7 +2,7 @@
 # LiteLLM Configuration — Local-System Inference Routing
 # ============================================================
 # Routes model requests to vLLM instances via model aliases.
-# IPs and ports are populated after Phase 0.1 auto-discovery.
+# IPs are injected via environment variables from .env
 # ============================================================
 #
 # Model aliases:
@@ -11,8 +11,9 @@
 #   embedding — embedding model for vector search
 #   coding    — coding specialist model
 #
-# After discovery, replace ${FOUNDRY_IP}, ${WORKSHOP_IP} etc.
-# with actual IPs from docs/infrastructure-report.md.
+# Environment variables used:
+#   FOUNDRY_HOST  — IP of FOUNDRY node
+#   WORKSHOP_HOST — IP of WORKSHOP node
 # ============================================================
 
 model_list:
@@ -20,7 +21,7 @@ model_list:
   - model_name: "reasoning"
     litellm_params:
       model: "openai/reasoning"
-      api_base: "http://${FOUNDRY_IP}:8000/v1"
+      api_base: "http://${FOUNDRY_HOST}:8000/v1"
       api_key: "not-needed"
     model_info:
       max_tokens: 32768
@@ -29,7 +30,7 @@ model_list:
   - model_name: "fast"
     litellm_params:
       model: "openai/fast"
-      api_base: "http://${WORKSHOP_IP}:8000/v1"
+      api_base: "http://${WORKSHOP_HOST}:8000/v1"
       api_key: "not-needed"
     model_info:
       max_tokens: 32768
@@ -38,14 +39,14 @@ model_list:
   - model_name: "embedding"
     litellm_params:
       model: "openai/embedding"
-      api_base: "http://${FOUNDRY_IP}:8001/v1"
+      api_base: "http://${FOUNDRY_HOST}:8001/v1"
       api_key: "not-needed"
 
   # --- Coding: coding specialist (if deployed) ---
   - model_name: "coding"
     litellm_params:
       model: "openai/coding"
-      api_base: "http://${FOUNDRY_IP}:8002/v1"
+      api_base: "http://${FOUNDRY_HOST}:8002/v1"
       api_key: "not-needed"
     model_info:
       max_tokens: 65536
@@ -54,19 +55,19 @@ model_list:
   - model_name: "gpt-4"
     litellm_params:
       model: "openai/reasoning"
-      api_base: "http://${FOUNDRY_IP}:8000/v1"
+      api_base: "http://${FOUNDRY_HOST}:8000/v1"
       api_key: "not-needed"
 
   - model_name: "gpt-3.5-turbo"
     litellm_params:
       model: "openai/fast"
-      api_base: "http://${WORKSHOP_IP}:8000/v1"
+      api_base: "http://${WORKSHOP_HOST}:8000/v1"
       api_key: "not-needed"
 
   - model_name: "text-embedding-ada-002"
     litellm_params:
       model: "openai/embedding"
-      api_base: "http://${FOUNDRY_IP}:8001/v1"
+      api_base: "http://${FOUNDRY_HOST}:8001/v1"
       api_key: "not-needed"
 
 router_settings:

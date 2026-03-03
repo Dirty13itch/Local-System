@@ -3,7 +3,7 @@
 Routes requests to inference (LiteLLM), memory, RAG, and orchestrator
 services. Handles CORS, API key auth, and SSE/WS.
 
-Runs on hydra-storage:8700.
+Runs on VAULT:8700.
 """
 
 from __future__ import annotations
@@ -35,16 +35,16 @@ logger = setup_logging("gateway", settings)
 # Allowed CORS origins — configured via env, defaults to local dev
 _cors_origins = os.environ.get(
     "CORS_ORIGINS",
-    f"http://localhost:3200,http://{settings.network.hydra_storage}:3200",
+    f"http://localhost:3001,http://{settings.network.vault}:3001",
 ).split(",")
 
-# Service URLs — all on hydra-storage unless noted
-_storage_host = settings.network.hydra_storage
+# Service URLs — all on VAULT unless noted
+_vault_host = settings.network.vault
 SERVICE_URLS = {
-    "inference": f"http://{_storage_host}:{settings.ports.gateway + 1}",  # local proxy
-    "memory": f"http://{_storage_host}:{settings.ports.memory}",
-    "orchestrator": f"http://{_storage_host}:{settings.ports.orchestrator}",
-    "rag": f"http://{_storage_host}:8704",
+    "inference": f"http://{_vault_host}:{settings.ports.gateway + 1}",  # local proxy
+    "memory": f"http://{_vault_host}:{settings.ports.memory}",
+    "orchestrator": f"http://{_vault_host}:{settings.ports.orchestrator}",
+    "rag": f"http://{_vault_host}:8704",
     "litellm": settings.inference.litellm_host,
 }
 
@@ -118,8 +118,8 @@ async def cluster_health(request: Request) -> dict:
 
     # Check remote inference nodes
     for node_name, host in [
-        ("tabby", settings.inference.tabby_host),
-        ("ollama_gpu", settings.inference.ollama_gpu_host),
+        ("vllm_reasoning", settings.inference.vllm_reasoning_host),
+        ("vllm_fast", settings.inference.vllm_fast_host),
     ]:
         try:
             resp = await client.get(f"{host}/health", timeout=5.0)

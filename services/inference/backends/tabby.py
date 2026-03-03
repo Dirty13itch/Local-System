@@ -31,7 +31,7 @@ logger = setup_logging("inference.tabby")
 class TabbyBackend(InferenceBackend):
     """TabbyAPI backend — OpenAI-compatible API on top of ExLlamaV2.
 
-    Deployed on hydra-ai (192.168.1.250:5000).
+    Deployed on FOUNDRY.
     Provides direct model management (load/unload) and inference.
     For normal chat requests, prefer routing through LiteLLM.
     """
@@ -144,7 +144,7 @@ class TabbyBackend(InferenceBackend):
                     backend=ModelBackend.TABBY,
                     context_length=m.get("max_model_len", 32768),
                     loaded=True,
-                    node="hydra-ai",
+                    node="foundry",
                 )
             )
         return models

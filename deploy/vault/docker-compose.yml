@@ -1,13 +1,11 @@
-# hydra-storage — Orchestration Brain + Databases + Services
-# EPYC 7663 56C/112T · 256GB DDR4 ECC · Arc A380 (Plex transcoding)
-# OS: Unraid 7.2.x · IP: 192.168.1.244
+# VAULT — Orchestration Brain + Databases + Services
+# Specs populated by scripts/discover.sh
 #
-# This is the central nervous system — runs 60+ containers.
-# The EPYC's 56 cores + 256GB ECC RAM make it ideal for:
-#   - Agent orchestration (20+ concurrent agents)
-#   - Database hosting (PostgreSQL, Qdrant, Neo4j, Redis, Meilisearch)
-#   - Service mesh (gateway, cognitive workspace, memory, RAG)
-#   - KV cache tier (~180GB available RAM for semantic caching)
+# Central nervous system:
+#   - Database hosting (PostgreSQL, Qdrant, Neo4j, Redis)
+#   - Service mesh (gateway, memory, orchestrator, RAG)
+#   - LiteLLM inference routing
+#   - Monitoring (Prometheus, Grafana)
 
 services:
   # === DATABASES ===
@@ -18,20 +16,20 @@ services:
     ports:
       - "5432:5432"
     environment:
-      POSTGRES_DB: ${POSTGRES_DB:-athanor}
-      POSTGRES_USER: ${POSTGRES_USER:-hydra}
+      POSTGRES_DB: ${POSTGRES_DB:-local_system}
+      POSTGRES_USER: ${POSTGRES_USER:-local_system}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-changeme}
     volumes:
       - /mnt/user/databases/postgres:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U hydra"]
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-local_system}"]
       interval: 10s
       timeout: 5s
       retries: 5
     restart: unless-stopped
 
   qdrant:
-    image: qdrant/qdrant:latest
+    image: qdrant/qdrant:v1.17.0
     container_name: qdrant
     ports:
       - "6333:6333"
@@ -43,7 +41,7 @@ services:
     restart: unless-stopped
 
   redis:
-    image: redis:7-alpine
+    image: redis:8-alpine
     container_name: redis
     ports:
       - "6379:6379"
@@ -59,7 +57,7 @@ services:
 
   neo4j:
     image: neo4j:5-community
-    container_name: hydra-neo4j
+    container_name: neo4j
     ports:
       - "7474:7474"
       - "7687:7687"
@@ -89,7 +87,7 @@ services:
       - "9000:9000"
       - "9001:9001"
     environment:
-      MINIO_ROOT_USER: ${MINIO_USER:-hydra}
+      MINIO_ROOT_USER: ${MINIO_USER:-local_system}
       MINIO_ROOT_PASSWORD: ${MINIO_PASSWORD:-changeme}
     volumes:
       - /mnt/user/databases/minio:/data
@@ -112,33 +110,24 @@ services:
       - ./litellm/config.yaml:/app/config.yaml
     environment:
       LITELLM_MASTER_KEY: ${LITELLM_KEY:-changeme}
+      FOUNDRY_HOST: ${FOUNDRY_HOST}
+      WORKSHOP_HOST: ${WORKSHOP_HOST}
     command: ["--config", "/app/config.yaml"]
     restart: unless-stopped
 
-  ollama-cpu:
-    image: ollama/ollama:latest
-    container_name: ollama-cpu
-    ports:
-      - "11434:11434"
-    volumes:
-      - /mnt/user/appdata/ollama:/root/.ollama
-    environment:
-      OLLAMA_HOST: 0.0.0.0
-    restart: unless-stopped
-
-  # === ATHANOR CORE SERVICES ===
+  # === CORE SERVICES ===
 
   gateway:
     build:
       context: ../..
       dockerfile: services/gateway/Dockerfile
-    container_name: athanor-gateway
+    container_name: gateway
     ports:
       - "8700:8700"
     env_file:
       - ../../.env
     environment:
-      NODE_NAME: hydra-storage
+      NODE_NAME: vault
       NODE_ROLE: orchestrator
     depends_on:
       - litellm
@@ -149,13 +138,13 @@ services:
     build:
       context: ../..
       dockerfile: services/memory/Dockerfile
-    container_name: athanor-memory
+    container_name: memory
     ports:
       - "8702:8702"
     env_file:
       - ../../.env
     environment:
-      NODE_NAME: hydra-storage
+      NODE_NAME: vault
       NODE_ROLE: orchestrator
     depends_on:
       - redis
@@ -168,13 +157,13 @@ services:
     build:
       context: ../..
       dockerfile: services/orchestrator/Dockerfile
-    container_name: athanor-orchestrator
+    container_name: orchestrator
     ports:
       - "8703:8703"
     env_file:
       - ../../.env
     environment:
-      NODE_NAME: hydra-storage
+      NODE_NAME: vault
       NODE_ROLE: orchestrator
     depends_on:
       - memory
@@ -185,13 +174,13 @@ services:
     build:
       context: ../..
       dockerfile: services/rag/Dockerfile
-    container_name: athanor-rag
+    container_name: rag
     ports:
       - "8704:8704"
     env_file:
       - ../../.env
     environment:
-      NODE_NAME: hydra-storage
+      NODE_NAME: vault
       NODE_ROLE: orchestrator
     depends_on:
       - qdrant
@@ -201,7 +190,7 @@ services:
   # === MONITORING ===
 
   prometheus:
-    image: prom/prometheus:latest
+    image: prom/prometheus:v3.10.0
     container_name: prometheus
     ports:
       - "9090:9090"
@@ -211,7 +200,7 @@ services:
     restart: unless-stopped
 
   grafana:
-    image: grafana/grafana:latest
+    image: grafana/grafana:12.4.0
     container_name: grafana
     ports:
       - "3003:3000"
@@ -234,7 +223,7 @@ services:
       DB_TYPE: postgresdb
       DB_POSTGRESDB_HOST: postgres
       DB_POSTGRESDB_DATABASE: n8n
-      DB_POSTGRESDB_USER: ${POSTGRES_USER:-hydra}
+      DB_POSTGRESDB_USER: ${POSTGRES_USER:-local_system}
       DB_POSTGRESDB_PASSWORD: ${POSTGRES_PASSWORD:-changeme}
     volumes:
       - n8n-data:/home/node/.n8n
@@ -248,11 +237,11 @@ services:
     build:
       context: ../..
       dockerfile: ui/Dockerfile
-    container_name: athanor-ui
+    container_name: command-center
     ports:
-      - "3200:3000"
+      - "3001:3000"
     environment:
-      NEXT_PUBLIC_API_URL: http://192.168.1.244:8700
+      NEXT_PUBLIC_API_URL: http://${VAULT_HOST:-localhost}:8700
     depends_on:
       - gateway
     restart: unless-stopped

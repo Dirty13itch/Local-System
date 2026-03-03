@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Athanor — Health check across all nodes
+# Local-System — Health check across all nodes
 # Usage: ./scripts/health-check.sh [node]
 
 set -euo pipefail
@@ -13,10 +13,11 @@ if [ -f "$PROJECT_DIR/.env" ]; then
     set +a
 fi
 
-# Node IPs (actual network)
-HYDRA_AI="${HYDRA_AI_HOST:-192.168.1.250}"
-HYDRA_COMPUTE="${HYDRA_COMPUTE_HOST:-192.168.1.203}"
-HYDRA_STORAGE="${HYDRA_STORAGE_HOST:-192.168.1.244}"
+# Node IPs (from .env or defaults)
+FOUNDRY="${FOUNDRY_HOST:-changeme}"
+WORKSHOP="${WORKSHOP_HOST:-changeme}"
+VAULT="${VAULT_HOST:-changeme}"
+DEV="${DEV_HOST:-192.168.1.189}"
 
 GREEN='\033[0;32m'
 RED='\033[0;31m'
@@ -35,52 +36,54 @@ check_service() {
 }
 
 echo "========================================"
-echo "  Athanor Health Check"
+echo "  Local-System Health Check"
 echo "========================================"
 echo ""
 
 FILTER="${1:-all}"
 
-if [ "$FILTER" = "all" ] || [ "$FILTER" = "hydra-ai" ]; then
-    echo "HYDRA-AI ($HYDRA_AI) — Primary Inference (5090+4090)"
-    check_service "TabbyAPI"       "http://$HYDRA_AI:5000/health"
-    check_service "Node Exporter"  "http://$HYDRA_AI:9100/metrics"
-    check_service "GPU Metrics"    "http://$HYDRA_AI:9835/metrics"
+if [ "$FILTER" = "all" ] || [ "$FILTER" = "foundry" ]; then
+    echo "FOUNDRY ($FOUNDRY) — Heavy Inference"
+    check_service "vLLM Reasoning"  "http://$FOUNDRY:8000/health"
+    check_service "vLLM Embedding"  "http://$FOUNDRY:8001/health"
+    check_service "Letta"           "http://$FOUNDRY:8283/api/health"
+    check_service "Node Exporter"   "http://$FOUNDRY:9100/metrics"
+    check_service "GPU Metrics"     "http://$FOUNDRY:9835/metrics"
     echo ""
 fi
 
-if [ "$FILTER" = "all" ] || [ "$FILTER" = "hydra-compute" ]; then
-    echo "HYDRA-COMPUTE ($HYDRA_COMPUTE) — Secondary Inference (2x5070Ti)"
-    check_service "Ollama GPU"     "http://$HYDRA_COMPUTE:11434/api/tags"
-    check_service "ComfyUI"        "http://$HYDRA_COMPUTE:8188"
-    check_service "Node Exporter"  "http://$HYDRA_COMPUTE:9100/metrics"
+if [ "$FILTER" = "all" ] || [ "$FILTER" = "workshop" ]; then
+    echo "WORKSHOP ($WORKSHOP) — Fast Inference + Creative"
+    check_service "vLLM Fast"       "http://$WORKSHOP:8000/health"
+    check_service "ComfyUI"         "http://$WORKSHOP:8188"
+    check_service "Node Exporter"   "http://$WORKSHOP:9100/metrics"
+    check_service "GPU Metrics"     "http://$WORKSHOP:9835/metrics"
     echo ""
 fi
 
-if [ "$FILTER" = "all" ] || [ "$FILTER" = "hydra-storage" ]; then
-    echo "HYDRA-STORAGE ($HYDRA_STORAGE) — Orchestration Brain (EPYC 56C)"
+if [ "$FILTER" = "all" ] || [ "$FILTER" = "vault" ]; then
+    echo "VAULT ($VAULT) — Orchestration + Databases"
     echo "  -- Core Services --"
-    check_service "Gateway"        "http://$HYDRA_STORAGE:8700/health"
-    check_service "Cognitive"      "http://$HYDRA_STORAGE:8701/health"
-    check_service "Memory"         "http://$HYDRA_STORAGE:8702/health"
-    check_service "Orchestrator"   "http://$HYDRA_STORAGE:8703/health"
-    check_service "RAG"            "http://$HYDRA_STORAGE:8704/health"
+    check_service "Gateway"         "http://$VAULT:8700/health"
+    check_service "Memory"          "http://$VAULT:8702/health"
+    check_service "Orchestrator"    "http://$VAULT:8703/health"
+    check_service "RAG"             "http://$VAULT:8704/health"
     echo "  -- Inference Gateway --"
-    check_service "LiteLLM"        "http://$HYDRA_STORAGE:4000/health"
-    check_service "Ollama CPU"     "http://$HYDRA_STORAGE:11434/api/tags"
+    check_service "LiteLLM"         "http://$VAULT:4000/health"
     echo "  -- Databases --"
-    check_service "Qdrant"         "http://$HYDRA_STORAGE:6333/collections"
-    check_service "Meilisearch"    "http://$HYDRA_STORAGE:7700/health"
-    check_service "Neo4j"          "http://$HYDRA_STORAGE:7474"
-    check_service "MinIO"          "http://$HYDRA_STORAGE:9000/minio/health/live"
+    check_service "Qdrant"          "http://$VAULT:6333/collections"
+    check_service "Neo4j"           "http://$VAULT:7474"
     echo "  -- Monitoring --"
-    check_service "Prometheus"     "http://$HYDRA_STORAGE:9090/-/healthy"
-    check_service "Grafana"        "http://$HYDRA_STORAGE:3003/api/health"
-    check_service "Uptime Kuma"    "http://$HYDRA_STORAGE:3004"
-    echo "  -- Automation --"
-    check_service "n8n"            "http://$HYDRA_STORAGE:5678/healthz"
+    check_service "Prometheus"      "http://$VAULT:9090/-/healthy"
+    check_service "Grafana"         "http://$VAULT:3003/api/health"
     echo "  -- UI --"
-    check_service "Command Center" "http://$HYDRA_STORAGE:3200"
+    check_service "Command Center"  "http://$VAULT:3001"
+    echo ""
+fi
+
+if [ "$FILTER" = "all" ] || [ "$FILTER" = "dev" ]; then
+    echo "DEV ($DEV) — Operations Center"
+    check_service "Node Exporter"   "http://$DEV:9100/metrics"
     echo ""
 fi
 

@@ -13,18 +13,17 @@ from local_system.config import (
 def test_settings_load():
     """Settings should load with defaults."""
     settings = Settings()
-    assert settings.node.name == NodeName.HYDRA_STORAGE
-    assert settings.node.role == NodeRole.ORCHESTRATOR
+    assert settings.node.name == NodeName.DEV
+    assert settings.node.role == NodeRole.OPERATIONS
     assert settings.log_level == "INFO"
 
 
 def test_network_host_lookup():
     """NetworkConfig.host_for() should return the correct IP for each node."""
     net = NetworkConfig()
-    # Default IPs from config — verify they resolve correctly
-    assert net.host_for(NodeName.HYDRA_AI) == net.hydra_ai
-    assert net.host_for(NodeName.HYDRA_STORAGE) == net.hydra_storage
-    assert net.host_for(NodeName.HYDRA_COMPUTE) == net.hydra_compute
+    assert net.host_for(NodeName.FOUNDRY) == net.foundry
+    assert net.host_for(NodeName.VAULT) == net.vault
+    assert net.host_for(NodeName.WORKSHOP) == net.workshop
 
 
 def test_service_ports_defaults():
@@ -33,20 +32,20 @@ def test_service_ports_defaults():
     assert ports.gateway == 8700
     assert ports.memory == 8702
     assert ports.orchestrator == 8703
-    assert ports.ui == 3200
+    assert ports.ui == 3001
 
 
 def test_database_url():
     """DatabaseConfig should build a valid async URL."""
     db = DatabaseConfig()
     assert db.url.startswith("postgresql+asyncpg://")
-    assert "athanor" in db.url
+    assert "local_system" in db.url
     assert db.sync_url.startswith("postgresql://")
 
 
 def test_inference_config_defaults():
-    """InferenceConfig should have correct backend URLs."""
+    """InferenceConfig should have correct LiteLLM and vLLM URLs."""
     settings = Settings()
     assert "4000" in settings.inference.litellm_host
-    assert "5000" in settings.inference.tabby_host
-    assert "11434" in settings.inference.ollama_gpu_host
+    assert "8000" in settings.inference.vllm_reasoning_host
+    assert "8001" in settings.inference.vllm_embedding_host

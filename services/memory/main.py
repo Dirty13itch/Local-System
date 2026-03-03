@@ -8,8 +8,7 @@ Implements the memory architecture inspired by human cognition:
   5. Resource — Ingested documents, code, papers (Qdrant chunks)
   6. Knowledge Vault — Validated high-confidence facts (PostgreSQL + Qdrant)
 
-Runs on hydra-storage (EPYC 7663 — 56 cores, 256GB ECC RAM).
-Memory consolidation happens during idle periods.
+Runs on VAULT. Memory consolidation happens during idle periods.
 """
 
 from __future__ import annotations
@@ -84,7 +83,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
 
 
 app = FastAPI(
-    title="Athanor Memory",
+    title="Local-System Memory",
     version="0.1.0",
     lifespan=lifespan,
 )
@@ -112,7 +111,7 @@ async def get_working_context() -> WorkingContext:
 
     import json
 
-    raw = await _redis.get("athanor:working_context")
+    raw = await _redis.get("local_system:working_context")
     if raw:
         return WorkingContext.model_validate_json(raw)
     return WorkingContext()
@@ -124,7 +123,7 @@ async def update_working_context(ctx: WorkingContext) -> dict:
     if not _redis:
         raise HTTPException(status_code=503, detail="Redis not available")
 
-    await _redis.set("athanor:working_context", ctx.model_dump_json())
+    await _redis.set("local_system:working_context", ctx.model_dump_json())
     logger.info("Working context updated", extra={"task": ctx.active_task})
     return {"status": "updated"}
 
@@ -204,7 +203,7 @@ async def search_memory(req: MemorySearchRequest) -> MemorySearchResponse:
     async with httpx.AsyncClient() as client:
         try:
             embed_resp = await client.post(
-                f"http://{settings.network.hydra_compute}:11434/api/embed",
+                f"{settings.inference.vllm_embedding_host}/v1/embeddings",
                 json={"model": settings.rag.embedding_model, "input": [req.query]},
                 timeout=30.0,
             )

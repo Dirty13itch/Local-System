@@ -1,12 +1,8 @@
-# hydra-ai — Primary Inference Node
-# Threadripper 7960X · 128GB DDR5 · RTX 5090 32GB + RTX 4090 24GB
-# OS: NixOS · IP: 192.168.1.250
+# FOUNDRY — Heavy Inference Node
+# Specs populated by scripts/discover.sh
 #
-# TabbyAPI runs as a NixOS systemd service (not Docker) for direct GPU access.
+# vLLM runs as a systemd service (not Docker) for direct GPU access.
 # This compose file is for auxiliary services only.
-#
-# TabbyAPI is configured in /etc/nixos/configuration.nix:
-#   systemd.services.tabbyapi (ExLlamaV2, tensor parallel, port 5000)
 
 services:
   # Node metrics exporter

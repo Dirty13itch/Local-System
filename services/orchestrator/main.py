@@ -3,8 +3,7 @@
 Manages specialist agents, integrates with the cognitive workspace,
 and coordinates multi-step tasks. Uses memory service for context.
 
-Runs on hydra-storage (EPYC 7663 — 56 cores, 256GB ECC RAM).
-The EPYC can run 20+ concurrent agents in parallel.
+Runs on VAULT.
 """
 
 from __future__ import annotations
@@ -44,7 +43,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
 
 
 app = FastAPI(
-    title="Athanor Orchestrator",
+    title="Local-System Orchestrator",
     version="0.1.0",
     lifespan=lifespan,
 )

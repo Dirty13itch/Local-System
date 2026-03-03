@@ -1,11 +1,10 @@
 """RAG Service — hybrid search with Qdrant vectors + Meilisearch BM25.
 
-Proven architecture from Hydra:
-  - Qdrant: 768-dim vectors from nomic-embed-text for semantic search
+  - Qdrant: vector search for semantic similarity
   - Meilisearch: BM25 full-text search for keyword matching
   - Hybrid: alpha-weighted combination (default 0.7 vector, 0.3 BM25)
 
-Runs on hydra-storage alongside the databases.
+Runs on VAULT alongside the databases.
 """
 
 from __future__ import annotations
@@ -67,15 +66,15 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
 
 
 app = FastAPI(
-    title="Athanor RAG",
+    title="Local-System RAG",
     version="0.1.0",
     lifespan=lifespan,
 )
 
 
 def _embedding_url() -> str:
-    """Ollama GPU endpoint for embeddings."""
-    return settings.inference.ollama_gpu_host
+    """vLLM embedding endpoint on FOUNDRY."""
+    return settings.inference.vllm_embedding_host
 
 
 @app.get("/health")
