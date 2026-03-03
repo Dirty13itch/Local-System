@@ -1,13 +1,14 @@
-"""API Gateway — central entry point for all Athanor services.
+"""API Gateway — central entry point for Local-System services.
 
-Routes requests to cognitive workspace, memory, inference, RAG,
-orchestrator, and storage services. Handles CORS, auth, and SSE/WS.
+Routes requests to inference (LiteLLM), memory, RAG, and orchestrator
+services. Handles CORS, API key auth, and SSE/WS.
 
 Runs on hydra-storage:8700.
 """
 
 from __future__ import annotations
 
+import os
 import time
 from contextlib import asynccontextmanager
 from typing import AsyncGenerator
@@ -23,7 +24,6 @@ from local_system.models import (
     ChatResponse,
     HealthResponse,
     MemorySearchRequest,
-    ModelInfo,
     SearchRequest,
     SearchResponse,
 )
@@ -32,16 +32,33 @@ from local_system.utils import setup_logging
 settings = get_settings()
 logger = setup_logging("gateway", settings)
 
+# Allowed CORS origins — configured via env, defaults to local dev
+_cors_origins = os.environ.get(
+    "CORS_ORIGINS",
+    f"http://localhost:3200,http://{settings.network.hydra_storage}:3200",
+).split(",")
+
 # Service URLs — all on hydra-storage unless noted
 _storage_host = settings.network.hydra_storage
 SERVICE_URLS = {
     "inference": f"http://{_storage_host}:{settings.ports.gateway + 1}",  # local proxy
-    "cognitive": f"http://{_storage_host}:{settings.ports.cognitive}",
     "memory": f"http://{_storage_host}:{settings.ports.memory}",
     "orchestrator": f"http://{_storage_host}:{settings.ports.orchestrator}",
     "rag": f"http://{_storage_host}:8704",
     "litellm": settings.inference.litellm_host,
 }
+
+# API key for gateway auth — set via env
+_api_key = os.environ.get("API_SECRET_KEY", settings.api_secret_key)
+
+
+def _verify_api_key(request: Request) -> None:
+    """Check API key if one is configured (skip if set to 'changeme'/dev mode)."""
+    if _api_key == "changeme":
+        return  # Dev mode — no auth required
+    auth = request.headers.get("Authorization", "")
+    if auth != f"Bearer {_api_key}" and request.query_params.get("api_key") != _api_key:
+        raise HTTPException(status_code=401, detail="Invalid or missing API key")
 
 
 @asynccontextmanager
@@ -55,14 +72,14 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
 
 
 app = FastAPI(
-    title="Athanor Gateway",
-    version="0.1.0",
+    title="Local-System Gateway",
+    version="0.2.0",
     lifespan=lifespan,
 )
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=_cors_origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -119,6 +136,7 @@ async def cluster_health(request: Request) -> dict:
 @app.post("/v1/chat/completions", response_model=ChatResponse)
 async def chat(request: Request, body: ChatRequest) -> ChatResponse:
     """Route chat through LiteLLM for intelligent model routing."""
+    _verify_api_key(request)
     client = _client(request)
     try:
         resp = await client.post(
@@ -144,6 +162,7 @@ async def chat(request: Request, body: ChatRequest) -> ChatResponse:
 @app.post("/v1/chat/completions/stream")
 async def chat_stream(request: Request, body: ChatRequest) -> StreamingResponse:
     """Stream chat via SSE through LiteLLM."""
+    _verify_api_key(request)
     client = _client(request)
 
     async def event_stream():
@@ -221,6 +240,7 @@ async def list_models(request: Request) -> list[dict]:
 @app.get("/v1/memory/working")
 async def get_working_memory(request: Request) -> dict:
     """Get current working memory context."""
+    _verify_api_key(request)
     client = _client(request)
     try:
         resp = await client.get(f"{SERVICE_URLS['memory']}/v1/memory/working")
@@ -233,6 +253,7 @@ async def get_working_memory(request: Request) -> dict:
 @app.post("/v1/memory/search")
 async def search_memory(request: Request, body: MemorySearchRequest) -> dict:
     """Search across memory tiers."""
+    _verify_api_key(request)
     client = _client(request)
     try:
         resp = await client.post(
@@ -245,27 +266,13 @@ async def search_memory(request: Request, body: MemorySearchRequest) -> dict:
         raise HTTPException(status_code=502, detail=str(e)) from e
 
 
-# --- Cognitive Workspace ---
-
-
-@app.get("/v1/cognitive/state")
-async def cognitive_state(request: Request) -> dict:
-    """Get current cognitive state (CST)."""
-    client = _client(request)
-    try:
-        resp = await client.get(f"{SERVICE_URLS['cognitive']}/v1/cognitive/state")
-        resp.raise_for_status()
-        return resp.json()
-    except Exception as e:
-        raise HTTPException(status_code=502, detail=str(e)) from e
-
-
 # --- RAG / Search ---
 
 
 @app.post("/v1/search", response_model=SearchResponse)
 async def search(request: Request, body: SearchRequest) -> SearchResponse:
     """Hybrid search via the RAG service."""
+    _verify_api_key(request)
     client = _client(request)
     try:
         resp = await client.post(
@@ -284,6 +291,7 @@ async def search(request: Request, body: SearchRequest) -> SearchResponse:
 @app.post("/v1/tasks")
 async def create_task(request: Request, body: dict) -> dict:
     """Create a new agent task."""
+    _verify_api_key(request)
     client = _client(request)
     try:
         resp = await client.post(
@@ -299,6 +307,7 @@ async def create_task(request: Request, body: dict) -> dict:
 @app.get("/v1/tasks/{task_id}")
 async def get_task(request: Request, task_id: str) -> dict:
     """Get task status and result."""
+    _verify_api_key(request)
     client = _client(request)
     try:
         resp = await client.get(f"{SERVICE_URLS['orchestrator']}/v1/tasks/{task_id}")
@@ -312,8 +321,9 @@ async def get_task(request: Request, task_id: str) -> dict:
 
 
 @app.post("/emergency/stop")
-async def emergency_stop() -> dict:
+async def emergency_stop(request: Request) -> dict:
     """Emergency kill switch — halt all autonomous operations."""
+    _verify_api_key(request)
     logger.critical("EMERGENCY STOP triggered")
     # TODO: Broadcast stop to all services
     return {"status": "emergency_stop", "message": "All autonomous operations halted"}

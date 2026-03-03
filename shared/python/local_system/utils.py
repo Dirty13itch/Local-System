@@ -18,7 +18,7 @@ from local_system.config import Settings, get_settings
 def generate_id(prefix: str = "") -> str:
     """Generate a unique ID with optional prefix."""
     uid = uuid.uuid4().hex[:12]
-    return f"{prefix}_{uid}" if prefix else uid
+    return f"{prefix}-{uid}" if prefix else uid
 
 
 def setup_logging(service_name: str, settings: Settings | None = None) -> logging.Logger:

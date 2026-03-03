@@ -10,6 +10,6 @@ RUN pip install --no-cache-dir /tmp/shared && rm -rf /tmp/shared
 
 COPY services/orchestrator/ .
 
-EXPOSE 8002 50052
+EXPOSE 8703
 
-CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8002"]
+CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8703"]

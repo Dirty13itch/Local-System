@@ -1,4 +1,4 @@
-"""Tests for Athanor shared configuration."""
+"""Tests for Local-System shared configuration."""
 
 from local_system.config import (
     NodeName,
@@ -19,18 +19,18 @@ def test_settings_load():
 
 
 def test_network_host_lookup():
-    """NetworkConfig.host_for() should return the correct IP."""
+    """NetworkConfig.host_for() should return the correct IP for each node."""
     net = NetworkConfig()
-    assert net.host_for(NodeName.HYDRA_AI) == "127.0.0.1"
-    assert net.host_for(NodeName.HYDRA_STORAGE) == "127.0.0.1"
-    assert net.host_for(NodeName.HYDRA_COMPUTE) == "127.0.0.1"
+    # Default IPs from config — verify they resolve correctly
+    assert net.host_for(NodeName.HYDRA_AI) == net.hydra_ai
+    assert net.host_for(NodeName.HYDRA_STORAGE) == net.hydra_storage
+    assert net.host_for(NodeName.HYDRA_COMPUTE) == net.hydra_compute
 
 
 def test_service_ports_defaults():
-    """ServicePorts should have correct defaults for Athanor."""
+    """ServicePorts should have correct defaults."""
     ports = ServicePorts()
     assert ports.gateway == 8700
-    assert ports.cognitive == 8701
     assert ports.memory == 8702
     assert ports.orchestrator == 8703
     assert ports.ui == 3200

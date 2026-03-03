@@ -11,7 +11,7 @@ pytestmark = pytest.mark.integration
 
 @pytest.fixture
 def gateway_url() -> str:
-    return "http://localhost:8000"
+    return "http://localhost:8700"
 
 
 async def test_gateway_health(gateway_url: str):
@@ -37,4 +37,4 @@ async def test_cluster_health(gateway_url: str):
         assert "inference" in data
         assert "orchestrator" in data
         assert "rag" in data
-        assert "storage" in data
+        assert "memory" in data

@@ -145,22 +145,6 @@ services:
       - redis
     restart: unless-stopped
 
-  cognitive:
-    build:
-      context: ../..
-      dockerfile: services/cognitive/Dockerfile
-    container_name: athanor-cognitive
-    ports:
-      - "8701:8701"
-    env_file:
-      - ../../.env
-    environment:
-      NODE_NAME: hydra-storage
-      NODE_ROLE: orchestrator
-    depends_on:
-      - redis
-    restart: unless-stopped
-
   memory:
     build:
       context: ../..

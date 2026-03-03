@@ -2,12 +2,14 @@ FROM python:3.12-slim
 
 WORKDIR /app
 
-COPY requirements.txt .
+COPY services/memory/requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-COPY ../../shared/python /app/shared
-RUN pip install --no-cache-dir /app/shared
+COPY shared/python /tmp/shared
+RUN pip install --no-cache-dir /tmp/shared && rm -rf /tmp/shared
 
-COPY . .
+COPY services/memory/ .
+
+EXPOSE 8702
 
 CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8702"]

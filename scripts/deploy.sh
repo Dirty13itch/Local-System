@@ -13,13 +13,11 @@ if [ -f "$PROJECT_DIR/.env" ]; then
     set +a
 fi
 
-# Node SSH targets (user@host)
+# Node SSH targets — use env vars or defaults matching actual infrastructure
 declare -A NODES=(
-    [node1]="${NODE1_SSH:-root@10.0.0.11}"
-    [node2]="${NODE2_SSH:-root@10.0.0.12}"
-    [vault]="${VAULT_SSH:-root@10.0.0.13}"
-    [desk]="${DESK_SSH:-root@10.0.0.14}"
-    [dev]="${DEV_SSH:-root@10.0.0.15}"
+    [hydra-ai]="${HYDRA_AI_SSH:-root@192.168.1.250}"
+    [hydra-compute]="${HYDRA_COMPUTE_SSH:-root@192.168.1.203}"
+    [hydra-storage]="${HYDRA_STORAGE_SSH:-root@192.168.1.244}"
 )
 
 DEPLOY_DIR="/opt/local-system"
@@ -31,6 +29,12 @@ deploy_node() {
 
     echo "=== Deploying to $node ($ssh_target) ==="
 
+    # Check if deploy config exists for this node
+    if [ ! -d "$PROJECT_DIR/deploy/$node" ]; then
+        echo "  No deploy config for $node — skipping"
+        return
+    fi
+
     # Sync project files
     rsync -az --delete \
         --exclude='.git' \
@@ -40,6 +44,7 @@ deploy_node() {
         --exclude='.venv' \
         --exclude='data' \
         --exclude='models' \
+        --exclude='.env' \
         "$PROJECT_DIR/" "$ssh_target:$DEPLOY_DIR/"
 
     # Build and start services
@@ -62,4 +67,4 @@ else
     deploy_node "$TARGET"
 fi
 
-echo "Deployment complete. Run 'make health' to verify."
+echo "Deployment complete. Check health with: curl http://192.168.1.244:8700/health/cluster"

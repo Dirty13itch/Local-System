@@ -1,4 +1,4 @@
-"""Centralized configuration for Athanor cognitive architecture."""
+"""Centralized configuration for Local-System."""
 
 from __future__ import annotations
 
@@ -52,12 +52,12 @@ class NetworkConfig(BaseSettings):
 
 
 class ServicePorts(BaseSettings):
-    """Port assignments for Athanor services."""
+    """Port assignments for Local-System services."""
 
     gateway: int = Field(default=8700, alias="GATEWAY_PORT")
-    cognitive: int = Field(default=8701, alias="COGNITIVE_PORT")
     memory: int = Field(default=8702, alias="MEMORY_PORT")
     orchestrator: int = Field(default=8703, alias="ORCHESTRATOR_PORT")
+    rag: int = Field(default=8704, alias="RAG_PORT")
     ui: int = Field(default=3200, alias="UI_PORT")
 
     # External services (not managed by us, but we connect to them)
@@ -162,7 +162,7 @@ class RAGConfig(BaseSettings):
 
 
 class Settings(BaseSettings):
-    """Aggregated settings for the Athanor system."""
+    """Aggregated settings for the Local-System."""
 
     node: NodeConfig = Field(default_factory=NodeConfig)
     network: NetworkConfig = Field(default_factory=NetworkConfig)

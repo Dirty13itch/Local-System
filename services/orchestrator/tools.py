@@ -98,7 +98,8 @@ class ToolRegistry:
     async def _rag_search(
         self, query: str, collection: str = "default", top_k: int = 5
     ) -> list[dict]:
-        rag_url = f"http://{self.settings.network.vault_host}:{self.settings.ports.rag}"
+        # RAG service runs on hydra-storage, port 8704
+        rag_url = f"http://{self.settings.network.hydra_storage}:8704"
         async with httpx.AsyncClient(timeout=30.0) as client:
             resp = await client.post(
                 f"{rag_url}/v1/search",
