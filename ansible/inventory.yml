@@ -1,0 +1,61 @@
+# ============================================================
+# Local-System Ansible Inventory
+# ============================================================
+# IPs and specs are populated by Phase 0.1 auto-discovery.
+# Run `scripts/discover.sh` to generate docs/infrastructure-report.md,
+# then update the IPs and variables below.
+# ============================================================
+all:
+  vars:
+    ansible_user: shaun
+    ansible_ssh_private_key_file: ~/.ssh/id_ed25519
+    ansible_python_interpreter: /usr/bin/python3
+
+  children:
+    # --- Server Nodes (Linux, Docker, always-on) ---
+    servers:
+      hosts:
+        foundry:
+          ansible_host: "{{ foundry_ip }}"  # UPDATE after discovery
+          node_role: inference
+          # gpu_count, gpu_models, vram_total — set after discovery
+        workshop:
+          ansible_host: "{{ workshop_ip }}"  # UPDATE after discovery
+          node_role: creative
+        vault:
+          ansible_host: "{{ vault_ip }}"  # UPDATE after discovery
+          node_role: orchestrator
+
+    # --- Development Node (Linux, Docker, Claude Code) ---
+    dev:
+      hosts:
+        dev:
+          ansible_host: 127.0.0.1
+          ansible_connection: local
+          node_role: operations
+
+    # --- Client Nodes (may not always be reachable) ---
+    clients:
+      hosts:
+        desk:
+          ansible_host: "{{ desk_ip }}"  # UPDATE after discovery
+          node_role: client
+          # Windows — may need WinRM or SSH
+        mobile:
+          ansible_host: "{{ mobile_ip }}"  # UPDATE after discovery
+          node_role: client
+
+    # --- Group: nodes with NVIDIA GPUs ---
+    gpu_nodes:
+      hosts:
+        foundry:
+        workshop:
+        # dev, desk, mobile — add if GPUs discovered
+
+    # --- Group: nodes running Docker ---
+    docker_nodes:
+      hosts:
+        foundry:
+        workshop:
+        vault:
+        dev:

@@ -1,0 +1,53 @@
+---
+# ============================================================
+# Base configuration for all Linux server nodes
+# ============================================================
+# Run: ansible-playbook -i ansible/inventory.yml ansible/playbooks/base-config.yml
+# ============================================================
+- name: Base configuration for server nodes
+  hosts: servers:dev
+  become: true
+  tasks:
+    - name: Remove snapd
+      ansible.builtin.apt:
+        name: snapd
+        state: absent
+        purge: true
+      ignore_errors: true
+
+    - name: Install base packages
+      ansible.builtin.apt:
+        name:
+          - git
+          - curl
+          - wget
+          - htop
+          - tmux
+          - vim
+          - python3
+          - python3-pip
+          - python3-venv
+          - jq
+          - unzip
+          - nfs-common
+          - net-tools
+          - lm-sensors
+        state: present
+        update_cache: true
+
+    - name: Set timezone
+      community.general.timezone:
+        name: America/Chicago
+
+    - name: Configure /etc/hosts for node discovery
+      ansible.builtin.lineinfile:
+        path: /etc/hosts
+        regexp: ".*{{ item.name }}$"
+        line: "{{ item.ip }} {{ item.name }}"
+        state: present
+      loop:
+        - { name: foundry, ip: "{{ hostvars['foundry']['ansible_host'] }}" }
+        - { name: workshop, ip: "{{ hostvars['workshop']['ansible_host'] }}" }
+        - { name: vault, ip: "{{ hostvars['vault']['ansible_host'] }}" }
+        - { name: dev, ip: "{{ hostvars['dev']['ansible_host'] }}" }
+      when: item.ip is defined and item.ip != "127.0.0.1"

@@ -12,12 +12,12 @@ export default function NodesPage() {
   }, []);
 
   const nodes = [
-    { id: "node1", name: "Node 1", role: "Inference Primary", hardware: "EPYC 56C · 224GB · 4×5070Ti + 4090" },
-    { id: "node2", name: "Node 2", role: "Inference + Fine-tune", hardware: "TR 24C · 128GB · 5090 + 5060Ti" },
-    { id: "vault", name: "VAULT", role: "Storage + Vector DB", hardware: "R9 9950X · 128GB · 180TB HDD" },
-    { id: "desk", name: "DESK", role: "UI + Orchestrator", hardware: "i7-13700K · 64GB · RTX 3060" },
-    { id: "dev", name: "DEV", role: "Development + CI/CD", hardware: "R9 9900X · 64GB · 5060Ti" },
-    { id: "mobile", name: "MOBILE", role: "Remote Client", hardware: "R9 5900HX · 64GB · 3070M" },
+    { id: "foundry", name: "FOUNDRY", role: "Heavy Inference · Agents · Vector DB", hardware: "Specs from auto-discovery" },
+    { id: "workshop", name: "WORKSHOP", role: "Fast Inference · Creative · Dashboard", hardware: "Specs from auto-discovery" },
+    { id: "vault", name: "VAULT", role: "Storage · Routing · Monitoring · HA · Media", hardware: "Specs from auto-discovery" },
+    { id: "dev", name: "DEV", role: "Operations Center · Claude Code", hardware: "Specs from auto-discovery" },
+    { id: "desk", name: "DESK", role: "Daily Windows Workstation", hardware: "Specs from auto-discovery" },
+    { id: "mobile", name: "MOBILE", role: "Laptop · Remote Access", hardware: "Asus ROG Strix G17" },
   ];
 
   return (

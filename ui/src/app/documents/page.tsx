@@ -20,7 +20,7 @@ export default function DocumentsPage() {
     formData.append("file", file);
 
     try {
-      await fetch(`${process.env.NEXT_PUBLIC_API_URL || "http://localhost:8003"}/v1/ingest/file`, {
+      await fetch(`${process.env.NEXT_PUBLIC_API_URL || "http://localhost:8700"}/v1/ingest/file`, {
         method: "POST",
         body: formData,
       });

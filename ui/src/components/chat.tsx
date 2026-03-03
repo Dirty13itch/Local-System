@@ -6,7 +6,7 @@ import { api, type Message } from "@/lib/api";
 export function Chat() {
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState("");
-  const [model, setModel] = useState("llama3.1:8b");
+  const [model, setModel] = useState("reasoning");
   const [isStreaming, setIsStreaming] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
@@ -68,11 +68,9 @@ export function Chat() {
           onChange={(e) => setModel(e.target.value)}
           className="bg-[var(--bg-tertiary)] border border-[var(--border)] rounded-lg px-3 py-1.5 text-sm"
         >
-          <option value="llama3.1:8b">Llama 3.1 8B</option>
-          <option value="llama3.1:70b">Llama 3.1 70B</option>
-          <option value="codellama:34b">Code Llama 34B</option>
-          <option value="mistral:7b">Mistral 7B</option>
-          <option value="deepseek-coder:33b">DeepSeek Coder 33B</option>
+          <option value="reasoning">Reasoning</option>
+          <option value="fast">Fast</option>
+          <option value="coding">Coding</option>
         </select>
       </div>
 

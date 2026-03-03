@@ -1,8 +1,8 @@
 /**
- * API client for the Athanor gateway.
+ * API client for the Local-System gateway.
  */
 
-const BASE_URL = process.env.NEXT_PUBLIC_API_URL || "http://192.168.1.244:8700";
+const BASE_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8700";
 
 export interface Message {
   role: "system" | "user" | "assistant" | "tool";
@@ -135,6 +135,16 @@ class ApiClient {
   async getCognitiveState(): Promise<CognitiveState> {
     const resp = await fetch(`${this.baseUrl}/v1/cognitive/state`);
     return resp.json();
+  }
+
+  // Document collections (Qdrant)
+  async listCollections(): Promise<Array<{ name: string; vectors_count?: number; points_count?: number }>> {
+    try {
+      const resp = await fetch(`${this.baseUrl}/v1/collections`);
+      return resp.json();
+    } catch {
+      return [];
+    }
   }
 
   // Search (hybrid)
