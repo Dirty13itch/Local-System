@@ -8,16 +8,17 @@ import {
   type DropEntry,
   type DropDetail,
   type TrainingJob,
+  type PromptTemplate,
 } from "@/lib/api";
 import { ImageUpload } from "@/components/ImageUpload";
 import { ImageGallery } from "@/components/ImageGallery";
-import { GeneratingSpinner } from "@/components/ProgressBar";
+import { GeneratingSpinner, ProgressBar } from "@/components/ProgressBar";
 import { QueenCard } from "@/components/QueenCard";
 import { DNARadar } from "@/components/DNARadar";
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
-type Tab = "create" | "face" | "queens" | "train" | "drops";
+type Tab = "create" | "edit" | "face" | "queens" | "train" | "drops" | "history";
 
 interface GeneratedImage {
   src: string;
@@ -32,14 +33,23 @@ interface Pipeline {
   est_time: string;
 }
 
+interface WsProgress {
+  step?: number;
+  maxSteps?: number;
+  node?: string;
+  promptId?: string;
+}
+
 // ─── Constants ───────────────────────────────────────────────────────────────
 
 const TABS: { id: Tab; label: string; icon: string }[] = [
   { id: "drops", label: "Drops", icon: "📂" },
   { id: "create", label: "Create", icon: "✦" },
+  { id: "edit", label: "Edit", icon: "✎" },
   { id: "face", label: "Face Gen", icon: "◉" },
   { id: "queens", label: "Queens", icon: "♛" },
   { id: "train", label: "Train", icon: "⚙" },
+  { id: "history", label: "History", icon: "⏱" },
 ];
 
 const DEFAULT_NEGATIVE = "blurry, low quality, deformed, ugly, bad anatomy, disfigured, poorly drawn, extra limbs";
@@ -82,9 +92,11 @@ export default function GeneratePage() {
       <div className="flex-1 overflow-auto">
         {activeTab === "drops" && <DropsTab />}
         {activeTab === "create" && <CreateTab />}
+        {activeTab === "edit" && <EditTab />}
         {activeTab === "face" && <FaceGenTab />}
         {activeTab === "queens" && <QueensTab />}
         {activeTab === "train" && <TrainTab />}
+        {activeTab === "history" && <HistoryTab />}
       </div>
     </div>
   );
@@ -500,11 +512,57 @@ function CreateTab() {
   const [images, setImages] = useState<GeneratedImage[]>([]);
   const [pipelines, setPipelines] = useState<Pipeline[]>([]);
   const [loras, setLoras] = useState<string[]>([]);
+  // Templates
+  const [templates, setTemplates] = useState<PromptTemplate[]>([]);
+  const [templateCat, setTemplateCat] = useState<string>("all");
+  const [showTemplates, setShowTemplates] = useState(false);
+  // WebSocket progress
+  const [wsProgress, setWsProgress] = useState<WsProgress | null>(null);
+  const [activePromptId, setActivePromptId] = useState<string | null>(null);
+  const wsRef = useRef<WebSocket | null>(null);
 
   useEffect(() => {
     api.listPipelines().then(setPipelines);
     api.listGenModels().then((m) => setLoras(m.loras || []));
+    api.listTemplates().then(setTemplates);
   }, []);
+
+  // WebSocket connection for progress
+  const connectWs = useCallback((clientId: string) => {
+    try {
+      const ws = api.connectGenerationWs(clientId);
+      wsRef.current = ws;
+      ws.onmessage = (ev) => {
+        try {
+          const data = JSON.parse(ev.data);
+          if (data.type === "progress") {
+            setWsProgress({ step: data.data?.value, maxSteps: data.data?.max, node: data.data?.node });
+          } else if (data.type === "executing" && data.data?.node === null) {
+            // Generation complete
+            setWsProgress(null);
+          }
+        } catch { /* ignore */ }
+      };
+      ws.onerror = () => ws.close();
+    } catch { /* ignore ws failures */ }
+  }, []);
+
+  const disconnectWs = useCallback(() => {
+    if (wsRef.current) {
+      wsRef.current.close();
+      wsRef.current = null;
+    }
+    setWsProgress(null);
+  }, []);
+
+  const cancelGeneration = async () => {
+    if (activePromptId) {
+      await api.cancelGeneration(activePromptId);
+      setGenerating(false);
+      setActivePromptId(null);
+      disconnectWs();
+    }
+  };
 
   const generate = async () => {
     if (!prompt.trim() || generating) return;
@@ -522,13 +580,15 @@ function CreateTab() {
         lora_name: loraName || undefined,
         lora_strength: loraName ? loraStrength : undefined,
       });
-
-      // Poll for completion (simple approach — check history)
+      setActivePromptId(resp.prompt_id);
+      connectWs(resp.client_id);
       await pollForResult(resp.prompt_id, prompt.trim());
     } catch (err) {
       console.error("Generation failed:", err);
     } finally {
       setGenerating(false);
+      setActivePromptId(null);
+      disconnectWs();
     }
   };
 
@@ -559,18 +619,82 @@ function CreateTab() {
     }
   };
 
+  const applyTemplate = (t: PromptTemplate) => {
+    setPrompt(t.base_prompt);
+    setNegative(t.negative_prompt);
+    setPipeline(t.pipeline);
+    setWidth(t.width);
+    setHeight(t.height);
+    setSteps(t.steps);
+    setCfg(t.cfg);
+  };
+
+  const templateCategories = ["all", ...new Set(templates.map((t) => t.category))];
+  const filteredTemplates = templateCat === "all" ? templates : templates.filter((t) => t.category === templateCat);
+
+  const progressPercent = wsProgress?.step && wsProgress?.maxSteps
+    ? Math.round((wsProgress.step / wsProgress.maxSteps) * 100)
+    : 0;
+
   return (
     <div className="p-6 max-w-5xl mx-auto">
       <div className="grid grid-cols-1 lg:grid-cols-[1fr_320px] gap-6">
         {/* Main area */}
         <div className="space-y-4">
+          {/* Template cards */}
+          <div>
+            <button
+              onClick={() => setShowTemplates(!showTemplates)}
+              className="text-xs text-[var(--text-secondary)] hover:text-[var(--text-primary)] transition-colors mb-2"
+            >
+              {showTemplates ? "▾ Hide templates" : "▸ Quick templates"}{" "}
+              <span className="text-[var(--accent)]">({templates.length})</span>
+            </button>
+            {showTemplates && (
+              <div className="space-y-2 mb-3">
+                <div className="flex gap-1.5 flex-wrap">
+                  {templateCategories.map((cat) => (
+                    <button
+                      key={cat}
+                      onClick={() => setTemplateCat(cat)}
+                      className={`text-[10px] px-2 py-0.5 rounded-full border transition-colors capitalize ${
+                        templateCat === cat
+                          ? "border-[var(--accent)] text-[var(--accent)] bg-[var(--accent)]/10"
+                          : "border-[var(--border)] text-[var(--text-secondary)] hover:border-[var(--text-secondary)]"
+                      }`}
+                    >
+                      {cat.replace(/_/g, " ")}
+                    </button>
+                  ))}
+                </div>
+                <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 max-h-52 overflow-auto">
+                  {filteredTemplates.map((t) => (
+                    <button
+                      key={t.id}
+                      onClick={() => applyTemplate(t)}
+                      className="text-left p-2 rounded-lg border border-[var(--border)] bg-[var(--bg-secondary)] hover:border-[var(--accent)] transition-colors"
+                    >
+                      <p className="text-xs font-medium truncate">{t.name}</p>
+                      <p className="text-[10px] text-[var(--text-secondary)] truncate mt-0.5">{t.base_prompt.slice(0, 60)}...</p>
+                      <div className="flex gap-1 mt-1 flex-wrap">
+                        {t.tags.slice(0, 3).map((tag) => (
+                          <span key={tag} className="text-[9px] px-1 py-0.5 rounded bg-[var(--bg-tertiary)] text-[var(--text-secondary)]">{tag}</span>
+                        ))}
+                      </div>
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+
           {/* Prompt */}
           <div>
             <label className="block text-sm font-medium mb-1.5">Prompt</label>
             <textarea
               value={prompt}
               onChange={(e) => setPrompt(e.target.value)}
-              placeholder="Describe what you want to generate..."
+              placeholder="Describe what you want to generate... or pick a template above"
               className="w-full h-28 rounded-lg border border-[var(--border)] bg-[var(--bg-tertiary)] px-3 py-2 text-sm resize-none focus:outline-none focus:border-[var(--accent)]"
               onKeyDown={(e) => {
                 if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) generate();
@@ -588,7 +712,7 @@ function CreateTab() {
             />
           </div>
 
-          {/* Generate button */}
+          {/* Generate + Cancel buttons */}
           <div className="flex items-center gap-3">
             <button
               onClick={generate}
@@ -597,11 +721,30 @@ function CreateTab() {
             >
               {generating ? "Generating..." : "Generate"}
             </button>
+            {generating && (
+              <button
+                onClick={cancelGeneration}
+                className="px-4 py-2.5 rounded-lg border border-red-500/50 text-red-400 hover:bg-red-500/10 text-sm transition-colors"
+              >
+                Cancel
+              </button>
+            )}
             <span className="text-xs text-[var(--text-secondary)]">Ctrl+Enter</span>
           </div>
 
           {/* Progress */}
-          {generating && <GeneratingSpinner />}
+          {generating && (
+            <div className="space-y-2">
+              {wsProgress?.step ? (
+                <ProgressBar
+                  progress={progressPercent}
+                  label={`Sampling ${wsProgress.step}/${wsProgress.maxSteps}`}
+                />
+              ) : (
+                <GeneratingSpinner label="Starting generation..." />
+              )}
+            </div>
+          )}
 
           {/* Gallery */}
           <div className="mt-6">
@@ -621,7 +764,7 @@ function CreateTab() {
               className="w-full rounded-lg border border-[var(--border)] bg-[var(--bg-tertiary)] px-3 py-2 text-sm focus:outline-none focus:border-[var(--accent)]"
             >
               {pipelines.length > 0 ? (
-                pipelines.map((p) => (
+                pipelines.filter((p) => p.type !== "img2img" && p.type !== "inpaint").map((p) => (
                   <option key={p.id} value={p.id}>
                     {p.name} ({p.est_time})
                   </option>
@@ -739,7 +882,7 @@ function CreateTab() {
                   onChange={(e) => setLoraName(e.target.value)}
                   className="w-full rounded-lg border border-[var(--border)] bg-[var(--bg-tertiary)] px-3 py-1.5 text-sm focus:outline-none focus:border-[var(--accent)]"
                 >
-                  <option value="">None</option>
+                  <option value="">None (auto NSFW LoRA)</option>
                   {loras.map((l) => (
                     <option key={l} value={l}>
                       {l}
@@ -1122,6 +1265,300 @@ function QueensTab() {
           </div>
         )}
       </div>
+    </div>
+  );
+}
+
+// ─── Tab: Edit (Img2Img + Inpaint) ──────────────────────────────────────────
+
+function EditTab() {
+  const [mode, setMode] = useState<"img2img" | "inpaint">("img2img");
+  const [sourceImage, setSourceImage] = useState<string | null>(null);
+  const [sourceFilename, setSourceFilename] = useState("");
+  const [maskImage, setMaskImage] = useState<string | null>(null);
+  const [maskFilename, setMaskFilename] = useState("");
+  const [prompt, setPrompt] = useState("");
+  const [negative, setNegative] = useState(DEFAULT_NEGATIVE);
+  const [denoise, setDenoise] = useState(0.6);
+  const [pipeline, setPipeline] = useState("flux-img2img");
+  const [generating, setGenerating] = useState(false);
+  const [images, setImages] = useState<GeneratedImage[]>([]);
+
+  const handleSourceUpload = useCallback(async (file: File) => {
+    const result = await api.uploadImage(file);
+    setSourceFilename(result.name);
+    const reader = new FileReader();
+    reader.onload = (e) => setSourceImage(e.target?.result as string);
+    reader.readAsDataURL(file);
+  }, []);
+
+  const handleMaskUpload = useCallback(async (file: File) => {
+    const result = await api.uploadImage(file);
+    setMaskFilename(result.name);
+    const reader = new FileReader();
+    reader.onload = (e) => setMaskImage(e.target?.result as string);
+    reader.readAsDataURL(file);
+  }, []);
+
+  const generate = async () => {
+    if (!sourceFilename || !prompt.trim() || generating) return;
+    if (mode === "inpaint" && !maskFilename) return;
+    setGenerating(true);
+    try {
+      const resp = mode === "img2img"
+        ? await api.generateImg2Img({
+            prompt: prompt.trim(),
+            source_image: sourceFilename,
+            negative_prompt: negative,
+            pipeline,
+            denoise_strength: denoise,
+          })
+        : await api.generateInpaint({
+            prompt: prompt.trim(),
+            source_image: sourceFilename,
+            mask_image: maskFilename,
+            negative_prompt: negative,
+            denoise_strength: denoise,
+          });
+
+      // Poll for result
+      for (let i = 0; i < 120; i++) {
+        await sleep(2000);
+        try {
+          const history = await api.generationHistory();
+          const entry = (history as Record<string, Record<string, unknown>>)[resp.prompt_id];
+          if (entry && entry.outputs) {
+            const outputs = entry.outputs as Record<string, { images?: Array<{ filename: string; type: string }> }>;
+            for (const nodeId of Object.keys(outputs)) {
+              const nodeOutput = outputs[nodeId];
+              if (nodeOutput.images) {
+                for (const img of nodeOutput.images) {
+                  setImages((prev) => [
+                    { src: api.getImageUrl(img.filename, img.type), prompt: prompt.trim() },
+                    ...prev,
+                  ]);
+                }
+              }
+            }
+            break;
+          }
+        } catch { /* keep polling */ }
+      }
+    } catch (err) {
+      console.error("Edit generation failed:", err);
+    } finally {
+      setGenerating(false);
+    }
+  };
+
+  return (
+    <div className="p-6 max-w-5xl mx-auto">
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        {/* Left — inputs */}
+        <div className="space-y-4">
+          {/* Mode toggle */}
+          <div className="grid grid-cols-2 gap-2">
+            {(["img2img", "inpaint"] as const).map((m) => (
+              <button
+                key={m}
+                onClick={() => setMode(m)}
+                className={`py-2 rounded-lg text-sm border transition-colors ${
+                  mode === m
+                    ? "border-[var(--accent)] text-[var(--accent)] bg-[var(--accent)]/10"
+                    : "border-[var(--border)] text-[var(--text-secondary)] hover:border-[var(--text-secondary)]"
+                }`}
+              >
+                {m === "img2img" ? "Img2Img" : "Inpaint"}
+                <span className="block text-[10px] mt-0.5 opacity-70">
+                  {m === "img2img" ? "Transform whole image" : "Paint masked region"}
+                </span>
+              </button>
+            ))}
+          </div>
+
+          {/* Source image */}
+          <div>
+            <label className="block text-sm font-medium mb-1.5">Source Image</label>
+            <ImageUpload onUpload={handleSourceUpload} preview={sourceImage} label="Upload the image to edit" />
+          </div>
+
+          {/* Mask image (inpaint only) */}
+          {mode === "inpaint" && (
+            <div>
+              <label className="block text-sm font-medium mb-1.5">Mask Image</label>
+              <ImageUpload onUpload={handleMaskUpload} preview={maskImage} label="White = repaint, Black = keep" />
+            </div>
+          )}
+
+          {/* Prompt */}
+          <div>
+            <label className="block text-sm font-medium mb-1.5">Prompt</label>
+            <textarea
+              value={prompt}
+              onChange={(e) => setPrompt(e.target.value)}
+              placeholder={mode === "img2img" ? "Describe the desired result..." : "Describe what to paint in the masked region..."}
+              className="w-full h-20 rounded-lg border border-[var(--border)] bg-[var(--bg-tertiary)] px-3 py-2 text-sm resize-none focus:outline-none focus:border-[var(--accent)]"
+            />
+          </div>
+
+          {/* Denoise */}
+          <div>
+            <label className="block text-xs text-[var(--text-secondary)] mb-1">
+              Denoise Strength ({denoise.toFixed(2)}) — {denoise < 0.3 ? "subtle" : denoise < 0.6 ? "moderate" : "heavy"} change
+            </label>
+            <input
+              type="range"
+              min={0.05}
+              max={1}
+              step={0.05}
+              value={denoise}
+              onChange={(e) => setDenoise(Number(e.target.value))}
+              className="w-full accent-[var(--accent)]"
+            />
+          </div>
+
+          {/* Pipeline */}
+          <div>
+            <label className="block text-xs text-[var(--text-secondary)] mb-1">Pipeline</label>
+            <select
+              value={pipeline}
+              onChange={(e) => setPipeline(e.target.value)}
+              className="w-full rounded-lg border border-[var(--border)] bg-[var(--bg-tertiary)] px-3 py-2 text-sm focus:outline-none focus:border-[var(--accent)]"
+            >
+              {mode === "img2img" ? (
+                <>
+                  <option value="flux-img2img">FLUX Img2Img</option>
+                  <option value="realvis-img2img">RealVisXL Img2Img</option>
+                </>
+              ) : (
+                <option value="flux-inpaint">FLUX Inpaint</option>
+              )}
+            </select>
+          </div>
+
+          {/* Generate */}
+          <button
+            onClick={generate}
+            disabled={!sourceFilename || !prompt.trim() || generating || (mode === "inpaint" && !maskFilename)}
+            className="px-6 py-2.5 rounded-lg bg-[var(--accent)] hover:bg-[var(--accent-hover)] text-white text-sm font-medium disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+          >
+            {generating ? "Processing..." : mode === "img2img" ? "Transform Image" : "Inpaint Region"}
+          </button>
+
+          {generating && <GeneratingSpinner label={mode === "img2img" ? "Transforming..." : "Inpainting..."} />}
+        </div>
+
+        {/* Right — results */}
+        <div>
+          <h3 className="text-sm font-medium mb-3">Results</h3>
+          <ImageGallery images={images} columns={2} />
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─── Tab: History ────────────────────────────────────────────────────────────
+
+interface HistoryImage {
+  src: string;
+  prompt: string;
+  promptId: string;
+  timestamp?: string;
+}
+
+function HistoryTab() {
+  const [images, setImages] = useState<HistoryImage[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  const loadHistory = useCallback(async () => {
+    try {
+      const history = await api.generationHistory() as Record<string, Record<string, unknown>>;
+      const imgs: HistoryImage[] = [];
+      for (const [promptId, entry] of Object.entries(history)) {
+        if (!entry.outputs) continue;
+        const outputs = entry.outputs as Record<string, { images?: Array<{ filename: string; type: string }> }>;
+        // Extract prompt from the workflow if available
+        let promptText = "";
+        try {
+          const p = entry.prompt as Array<unknown>;
+          if (Array.isArray(p) && p.length >= 3) {
+            const workflow = p[2] as Record<string, { inputs?: { text?: string } }>;
+            for (const node of Object.values(workflow)) {
+              if (node.inputs?.text && node.inputs.text.length > 20) {
+                promptText = node.inputs.text;
+                break;
+              }
+            }
+          }
+        } catch { /* skip */ }
+
+        for (const nodeId of Object.keys(outputs)) {
+          const nodeOutput = outputs[nodeId];
+          if (nodeOutput.images) {
+            for (const img of nodeOutput.images) {
+              imgs.push({
+                src: api.getImageUrl(img.filename, img.type),
+                prompt: promptText,
+                promptId,
+              });
+            }
+          }
+        }
+      }
+      setImages(imgs.reverse());
+    } catch {
+      // Offline
+    }
+  }, []);
+
+  useEffect(() => {
+    loadHistory().then(() => setLoading(false));
+  }, [loadHistory]);
+
+  if (loading) {
+    return <div className="p-6 text-[var(--text-secondary)]">Loading history...</div>;
+  }
+
+  return (
+    <div className="p-6">
+      <div className="flex items-center justify-between mb-5">
+        <div>
+          <h2 className="text-lg font-semibold">Generation History</h2>
+          <p className="text-xs text-[var(--text-secondary)] mt-0.5">
+            {images.length} images from ComfyUI history
+          </p>
+        </div>
+        <button
+          onClick={() => { setLoading(true); loadHistory().then(() => setLoading(false)); }}
+          className="px-3 py-1.5 text-xs rounded-lg border border-[var(--border)] bg-[var(--bg-tertiary)] hover:bg-[var(--bg-secondary)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] transition-colors"
+        >
+          Refresh
+        </button>
+      </div>
+
+      {images.length === 0 ? (
+        <div className="text-center py-16 text-[var(--text-secondary)]">
+          <div className="text-4xl mb-3">🖼</div>
+          <p className="text-sm">No generation history found</p>
+          <p className="text-xs mt-1">Generate some images in the Create tab to see them here</p>
+        </div>
+      ) : (
+        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-3">
+          {images.map((img, i) => (
+            <div key={i} className="group relative">
+              <div className="aspect-square rounded-lg overflow-hidden border border-[var(--border)] bg-[var(--bg-tertiary)] hover:border-[var(--accent)] transition-colors">
+                <img src={img.src} alt={`Generated ${i + 1}`} className="w-full h-full object-cover" loading="lazy" />
+              </div>
+              {img.prompt && (
+                <div className="absolute inset-x-0 bottom-0 p-1.5 bg-gradient-to-t from-black/80 to-transparent rounded-b-lg opacity-0 group-hover:opacity-100 transition-opacity">
+                  <p className="text-[10px] text-white truncate">{img.prompt}</p>
+                </div>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 }

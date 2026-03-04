@@ -63,6 +63,11 @@ export function QueenCard({ queen, selected = false, onClick }: Props) {
                 {queen.reference_images.length} refs
               </span>
             )}
+            {!queen.lora_name && queen.reference_images.length === 0 && (
+              <span className="text-[10px] px-1.5 py-0.5 rounded bg-yellow-500/20 text-yellow-400">
+                ⚠ prompt only
+              </span>
+            )}
             <span className="text-[10px] text-[var(--text-secondary)]">
               {queen.scenes.length} scenes
             </span>
