@@ -61,10 +61,14 @@ def _find_master_doc() -> Path | None:
 # ---------------------------------------------------------------------------
 
 def _extract_between_bold_sections(section: str, header: str) -> str:
-    """Extract text between a **Header** marker and the next **...** marker."""
-    # Match the header and capture everything until the next bold section or end
+    """Extract text between a **Header...** marker and the next **...** marker.
+
+    The header parameter is treated as a prefix — the actual bold marker may
+    contain extra text, e.g. **Unique Scenes (10+ Script-Ready)** matches
+    when header="Unique Scenes".
+    """
     pat = re.compile(
-        rf"\*\*{re.escape(header)}\*\*[:\s]*(.*?)(?=\*\*[A-Z]|\Z)",
+        rf"\*\*{re.escape(header)}[^*]*\*\*[:\s]*(.*?)(?=\*\*[A-Z]|\Z)",
         re.DOTALL | re.IGNORECASE,
     )
     m = pat.search(section)
@@ -107,9 +111,10 @@ def _extract_flux_prompt(section: str) -> str:
     The document format is:
       **Flux.2 Prompt Example**: "hyperreal 4K ..."
     """
-    # Match the bold header followed by a quoted string
+    # Match the bold header followed by a quoted string.
+    # Use greedy match because prompts may contain internal quotes (e.g. 5'10")
     m = re.search(
-        r'\*\*Flux\.?\d?\s*Prompt\s*Example\*\*[:\s]*"([^"]+)"',
+        r'\*\*Flux\.?\d?\s*Prompt\s*Example\*\*[:\s]*"(.+)"',
         section,
         re.IGNORECASE,
     )
