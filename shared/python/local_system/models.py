@@ -396,6 +396,42 @@ class GenerateFaceRequest(BaseModel):
     seed: int = -1
 
 
+class Img2ImgRequest(BaseModel):
+    """Image-to-image generation — repaint an existing image with a new prompt."""
+
+    prompt: str
+    source_image: str  # filename uploaded via /upload
+    negative_prompt: str = "blurry, low quality, deformed, ugly, bad anatomy"
+    pipeline: str = "flux-img2img"  # flux-img2img or realvis-img2img
+    denoise_strength: float = 0.6  # 0.0 = keep original, 1.0 = full redraw
+    width: int = 1024
+    height: int = 1024
+    steps: int = 25
+    cfg: float = 1.0
+    seed: int = -1
+    lora_name: str | None = None
+    lora_strength: float = 1.0
+    restore_face: bool = False
+
+
+class InpaintRequest(BaseModel):
+    """Inpainting — repaint only the masked region of an image."""
+
+    prompt: str
+    source_image: str  # filename uploaded via /upload
+    mask_image: str  # filename uploaded via /upload (white=repaint, black=keep)
+    negative_prompt: str = "blurry, low quality, deformed, ugly, bad anatomy"
+    denoise_strength: float = 0.8
+    width: int = 1024
+    height: int = 1024
+    steps: int = 25
+    cfg: float = 1.0
+    seed: int = -1
+    lora_name: str | None = None
+    lora_strength: float = 1.0
+    restore_face: bool = False
+
+
 class FaceSwapRequest(BaseModel):
     """Post-process face swap onto existing image."""
 

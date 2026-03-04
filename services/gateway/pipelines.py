@@ -607,6 +607,370 @@ def queen_scene(
 
 
 # ---------------------------------------------------------------------------
+# FLUX Img2Img — image-to-image with uncensored LoRA
+# ---------------------------------------------------------------------------
+
+def flux_img2img(
+    prompt: str,
+    source_image: str,
+    negative_prompt: str = "",
+    denoise_strength: float = 0.6,
+    width: int = 1024,
+    height: int = 1024,
+    steps: int = 25,
+    cfg: float = 1.0,
+    seed: int = -1,
+    lora_name: str | None = None,
+    lora_strength: float = 1.0,
+    restore_face: bool = False,
+) -> dict:
+    """Build FLUX.1 Dev img2img workflow.
+
+    Takes an existing image and re-renders it with the given prompt at the
+    specified denoise strength (0.0 = keep original, 1.0 = full redraw).
+    Auto-loads uncensored LoRA.
+    """
+    if lora_name is None:
+        lora_name = DEFAULT_NSFW_LORA
+        lora_strength = DEFAULT_NSFW_LORA_STRENGTH
+
+    s = _seed(seed)
+    workflow = {
+        "10": {
+            "class_type": "VAELoader",
+            "inputs": {"vae_name": "ae.safetensors"},
+        },
+        "11": {
+            "class_type": "DualCLIPLoader",
+            "inputs": {
+                "clip_name1": "t5xxl_fp8_e4m3fn.safetensors",
+                "clip_name2": "clip_l.safetensors",
+                "type": "flux",
+            },
+        },
+        "12": {
+            "class_type": "UNETLoader",
+            "inputs": {
+                "unet_name": "flux1-dev-fp8.safetensors",
+                "weight_dtype": "fp8_e4m3fn",
+            },
+        },
+        # Load source image
+        "50": {
+            "class_type": "LoadImage",
+            "inputs": {"image": source_image},
+        },
+        # Resize to target dimensions
+        "51": {
+            "class_type": "ImageResize+",
+            "inputs": {
+                "image": ["50", 0],
+                "width": width,
+                "height": height,
+                "interpolation": "lanczos",
+                "method": "stretch",
+                "condition": "always",
+                "multiple_of": 8,
+            },
+        },
+        # Encode source image to latent
+        "52": {
+            "class_type": "VAEEncode",
+            "inputs": {
+                "pixels": ["51", 0],
+                "vae": ["10", 0],
+            },
+        },
+        "16": {
+            "class_type": "CLIPTextEncode",
+            "inputs": {"text": prompt, "clip": ["11", 0]},
+        },
+        "17": {
+            "class_type": "CLIPTextEncode",
+            "inputs": {"text": negative_prompt or "", "clip": ["11", 0]},
+        },
+        "13": {
+            "class_type": "KSampler",
+            "inputs": {
+                "model": ["12", 0],
+                "positive": ["16", 0],
+                "negative": ["17", 0],
+                "latent_image": ["52", 0],  # Encoded source image
+                "seed": s,
+                "steps": steps,
+                "cfg": cfg,
+                "sampler_name": "euler",
+                "scheduler": "simple",
+                "denoise": denoise_strength,
+            },
+        },
+        "8": {
+            "class_type": "VAEDecode",
+            "inputs": {"samples": ["13", 0], "vae": ["10", 0]},
+        },
+        "9": {
+            "class_type": "SaveImage",
+            "inputs": {"filename_prefix": "img2img", "images": ["8", 0]},
+        },
+    }
+
+    # Add LoRA
+    if lora_name:
+        workflow["20"] = {
+            "class_type": "LoraLoader",
+            "inputs": {
+                "model": ["12", 0],
+                "clip": ["11", 0],
+                "lora_name": lora_name,
+                "strength_model": lora_strength,
+                "strength_clip": lora_strength,
+            },
+        }
+        workflow["13"]["inputs"]["model"] = ["20", 0]
+        workflow["16"]["inputs"]["clip"] = ["20", 1]
+        workflow["17"]["inputs"]["clip"] = ["20", 1]
+
+    if restore_face:
+        _add_face_restore(workflow, image_node_id="8", save_node_id="9")
+
+    return {"prompt": workflow, "client_id": _client_id()}
+
+
+# ---------------------------------------------------------------------------
+# RealVisXL Img2Img
+# ---------------------------------------------------------------------------
+
+def realvis_img2img(
+    prompt: str,
+    source_image: str,
+    negative_prompt: str = "blurry, low quality, deformed, ugly, bad anatomy",
+    denoise_strength: float = 0.6,
+    width: int = 1024,
+    height: int = 1024,
+    steps: int = 30,
+    cfg: float = 5.0,
+    seed: int = -1,
+    restore_face: bool = False,
+) -> dict:
+    """Build RealVisXL V5.0 img2img workflow."""
+    s = _seed(seed)
+    workflow = {
+        "4": {
+            "class_type": "CheckpointLoaderSimple",
+            "inputs": {"ckpt_name": "RealVisXL_V5.0.safetensors"},
+        },
+        "50": {
+            "class_type": "LoadImage",
+            "inputs": {"image": source_image},
+        },
+        "51": {
+            "class_type": "ImageResize+",
+            "inputs": {
+                "image": ["50", 0],
+                "width": width,
+                "height": height,
+                "interpolation": "lanczos",
+                "method": "stretch",
+                "condition": "always",
+                "multiple_of": 8,
+            },
+        },
+        "52": {
+            "class_type": "VAEEncode",
+            "inputs": {
+                "pixels": ["51", 0],
+                "vae": ["4", 2],
+            },
+        },
+        "6": {
+            "class_type": "CLIPTextEncode",
+            "inputs": {"text": prompt, "clip": ["4", 1]},
+        },
+        "7": {
+            "class_type": "CLIPTextEncode",
+            "inputs": {"text": negative_prompt, "clip": ["4", 1]},
+        },
+        "3": {
+            "class_type": "KSampler",
+            "inputs": {
+                "model": ["4", 0],
+                "positive": ["6", 0],
+                "negative": ["7", 0],
+                "latent_image": ["52", 0],
+                "seed": s,
+                "steps": steps,
+                "cfg": cfg,
+                "sampler_name": "dpmpp_2m",
+                "scheduler": "karras",
+                "denoise": denoise_strength,
+            },
+        },
+        "8": {
+            "class_type": "VAEDecode",
+            "inputs": {"samples": ["3", 0], "vae": ["4", 2]},
+        },
+        "9": {
+            "class_type": "SaveImage",
+            "inputs": {"filename_prefix": "img2img_realvis", "images": ["8", 0]},
+        },
+    }
+
+    if restore_face:
+        _add_face_restore(workflow, image_node_id="8", save_node_id="9")
+
+    return {"prompt": workflow, "client_id": _client_id()}
+
+
+# ---------------------------------------------------------------------------
+# FLUX Inpaint — masked region repaint with uncensored LoRA
+# ---------------------------------------------------------------------------
+
+def flux_inpaint(
+    prompt: str,
+    source_image: str,
+    mask_image: str,
+    negative_prompt: str = "",
+    denoise_strength: float = 0.8,
+    width: int = 1024,
+    height: int = 1024,
+    steps: int = 25,
+    cfg: float = 1.0,
+    seed: int = -1,
+    lora_name: str | None = None,
+    lora_strength: float = 1.0,
+    restore_face: bool = False,
+) -> dict:
+    """Build FLUX.1 Dev inpainting workflow.
+
+    Repaints only the masked region (white=repaint, black=keep) of the source
+    image using the given prompt. Auto-loads uncensored LoRA.
+    """
+    if lora_name is None:
+        lora_name = DEFAULT_NSFW_LORA
+        lora_strength = DEFAULT_NSFW_LORA_STRENGTH
+
+    s = _seed(seed)
+    workflow = {
+        "10": {
+            "class_type": "VAELoader",
+            "inputs": {"vae_name": "ae.safetensors"},
+        },
+        "11": {
+            "class_type": "DualCLIPLoader",
+            "inputs": {
+                "clip_name1": "t5xxl_fp8_e4m3fn.safetensors",
+                "clip_name2": "clip_l.safetensors",
+                "type": "flux",
+            },
+        },
+        "12": {
+            "class_type": "UNETLoader",
+            "inputs": {
+                "unet_name": "flux1-dev-fp8.safetensors",
+                "weight_dtype": "fp8_e4m3fn",
+            },
+        },
+        # Source image
+        "50": {
+            "class_type": "LoadImage",
+            "inputs": {"image": source_image},
+        },
+        "51": {
+            "class_type": "ImageResize+",
+            "inputs": {
+                "image": ["50", 0],
+                "width": width,
+                "height": height,
+                "interpolation": "lanczos",
+                "method": "stretch",
+                "condition": "always",
+                "multiple_of": 8,
+            },
+        },
+        # Mask image (white = repaint, black = keep)
+        "55": {
+            "class_type": "LoadImage",
+            "inputs": {"image": mask_image},
+        },
+        "56": {
+            "class_type": "ImageToMask",
+            "inputs": {
+                "image": ["55", 0],
+                "channel": "red",
+            },
+        },
+        # Encode to latent
+        "52": {
+            "class_type": "VAEEncode",
+            "inputs": {
+                "pixels": ["51", 0],
+                "vae": ["10", 0],
+            },
+        },
+        # Apply mask to latent
+        "53": {
+            "class_type": "SetLatentNoiseMask",
+            "inputs": {
+                "samples": ["52", 0],
+                "mask": ["56", 0],
+            },
+        },
+        "16": {
+            "class_type": "CLIPTextEncode",
+            "inputs": {"text": prompt, "clip": ["11", 0]},
+        },
+        "17": {
+            "class_type": "CLIPTextEncode",
+            "inputs": {"text": negative_prompt or "", "clip": ["11", 0]},
+        },
+        "13": {
+            "class_type": "KSampler",
+            "inputs": {
+                "model": ["12", 0],
+                "positive": ["16", 0],
+                "negative": ["17", 0],
+                "latent_image": ["53", 0],  # Masked latent
+                "seed": s,
+                "steps": steps,
+                "cfg": cfg,
+                "sampler_name": "euler",
+                "scheduler": "simple",
+                "denoise": denoise_strength,
+            },
+        },
+        "8": {
+            "class_type": "VAEDecode",
+            "inputs": {"samples": ["13", 0], "vae": ["10", 0]},
+        },
+        "9": {
+            "class_type": "SaveImage",
+            "inputs": {"filename_prefix": "inpaint", "images": ["8", 0]},
+        },
+    }
+
+    # Add LoRA
+    if lora_name:
+        workflow["20"] = {
+            "class_type": "LoraLoader",
+            "inputs": {
+                "model": ["12", 0],
+                "clip": ["11", 0],
+                "lora_name": lora_name,
+                "strength_model": lora_strength,
+                "strength_clip": lora_strength,
+            },
+        }
+        workflow["13"]["inputs"]["model"] = ["20", 0]
+        workflow["16"]["inputs"]["clip"] = ["20", 1]
+        workflow["17"]["inputs"]["clip"] = ["20", 1]
+
+    if restore_face:
+        _add_face_restore(workflow, image_node_id="8", save_node_id="9")
+
+    return {"prompt": workflow, "client_id": _client_id()}
+
+
+# ---------------------------------------------------------------------------
 # Preset Registry
 # ---------------------------------------------------------------------------
 
@@ -618,4 +982,7 @@ PIPELINE_PRESETS = {
     "face-swap": face_swap,
     "queen-portrait": queen_portrait,
     "queen-scene": queen_scene,
+    "flux-img2img": flux_img2img,
+    "realvis-img2img": realvis_img2img,
+    "flux-inpaint": flux_inpaint,
 }

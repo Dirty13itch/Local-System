@@ -29,6 +29,8 @@ from local_system.models import (
     GenerateImageResponse,
     GenerationStatus,
     HealthResponse,
+    Img2ImgRequest,
+    InpaintRequest,
     MemorySearchRequest,
     Message,
     PerformerInfo,
@@ -44,7 +46,10 @@ from local_system.utils import setup_logging
 
 from .auto_gen import auto_gen, generate_prompts_llm
 from .dna_engine import dna_to_prompt_modifiers
-from .pipelines import PIPELINE_PRESETS, flux_faceid, flux_uncensored, queen_portrait, queen_scene, face_swap as build_face_swap
+from .pipelines import (
+    PIPELINE_PRESETS, flux_faceid, flux_img2img, flux_inpaint, flux_uncensored,
+    queen_portrait, queen_scene, realvis_img2img, face_swap as build_face_swap,
+)
 from .prompt_templates import fill_template, get_template, list_templates
 from .queens import get_queen, load_queens, reload_queens
 from .scene_builder import build_portrait_prompt, build_scene_negative, build_scene_prompt
@@ -749,6 +754,98 @@ async def generate_from_template(
     params["seed"] = seed
 
     workflow_data = pipeline_fn(**params)
+
+    try:
+        resp = await client.post(f"{COMFYUI_URL}/prompt", json=workflow_data, timeout=30.0)
+        resp.raise_for_status()
+        data = resp.json()
+        return GenerateImageResponse(
+            prompt_id=data.get("prompt_id", ""),
+            client_id=workflow_data.get("client_id", ""),
+        )
+    except httpx.RequestError as e:
+        raise HTTPException(status_code=502, detail=f"ComfyUI unavailable: {e}") from e
+
+
+# ─── Img2Img & Inpainting ─────────────────────────────────────────────────
+
+
+@app.post("/v1/generate/img2img", response_model=GenerateImageResponse)
+async def generate_img2img(request: Request, body: Img2ImgRequest) -> GenerateImageResponse:
+    """Image-to-image generation — repaint an existing image with a new prompt.
+
+    Upload the source image first via /v1/generate/upload, then pass the filename.
+    Denoise strength controls how much to change: 0.3 = subtle, 0.6 = moderate, 0.9 = heavy.
+    """
+    _verify_api_key(request)
+    client = _client(request)
+
+    if body.pipeline == "realvis-img2img":
+        workflow_data = realvis_img2img(
+            prompt=body.prompt,
+            source_image=body.source_image,
+            negative_prompt=body.negative_prompt,
+            denoise_strength=body.denoise_strength,
+            width=body.width,
+            height=body.height,
+            steps=body.steps,
+            cfg=body.cfg,
+            seed=body.seed,
+            restore_face=body.restore_face,
+        )
+    else:
+        workflow_data = flux_img2img(
+            prompt=body.prompt,
+            source_image=body.source_image,
+            negative_prompt=body.negative_prompt,
+            denoise_strength=body.denoise_strength,
+            width=body.width,
+            height=body.height,
+            steps=body.steps,
+            cfg=body.cfg,
+            seed=body.seed,
+            lora_name=body.lora_name,
+            lora_strength=body.lora_strength,
+            restore_face=body.restore_face,
+        )
+
+    try:
+        resp = await client.post(f"{COMFYUI_URL}/prompt", json=workflow_data, timeout=30.0)
+        resp.raise_for_status()
+        data = resp.json()
+        return GenerateImageResponse(
+            prompt_id=data.get("prompt_id", ""),
+            client_id=workflow_data.get("client_id", ""),
+        )
+    except httpx.RequestError as e:
+        raise HTTPException(status_code=502, detail=f"ComfyUI unavailable: {e}") from e
+
+
+@app.post("/v1/generate/inpaint", response_model=GenerateImageResponse)
+async def generate_inpaint(request: Request, body: InpaintRequest) -> GenerateImageResponse:
+    """Inpainting — repaint only the masked region of an image.
+
+    Upload source and mask images via /v1/generate/upload first.
+    Mask should be white where you want to repaint, black where you want to keep.
+    """
+    _verify_api_key(request)
+    client = _client(request)
+
+    workflow_data = flux_inpaint(
+        prompt=body.prompt,
+        source_image=body.source_image,
+        mask_image=body.mask_image,
+        negative_prompt=body.negative_prompt,
+        denoise_strength=body.denoise_strength,
+        width=body.width,
+        height=body.height,
+        steps=body.steps,
+        cfg=body.cfg,
+        seed=body.seed,
+        lora_name=body.lora_name,
+        lora_strength=body.lora_strength,
+        restore_face=body.restore_face,
+    )
 
     try:
         resp = await client.post(f"{COMFYUI_URL}/prompt", json=workflow_data, timeout=30.0)

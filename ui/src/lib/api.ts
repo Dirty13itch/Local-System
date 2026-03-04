@@ -410,6 +410,97 @@ class ApiClient {
     return `${this.baseUrl}/v1/generate/performer-refs/${slug}/${encodeURIComponent(filename)}`;
   }
 
+  // ─── Img2Img & Inpainting ─────────────────────────────────────────────
+
+  async generateImg2Img(params: {
+    prompt: string;
+    source_image: string;
+    negative_prompt?: string;
+    pipeline?: string;
+    denoise_strength?: number;
+    width?: number;
+    height?: number;
+    steps?: number;
+    cfg?: number;
+    seed?: number;
+    lora_name?: string;
+    lora_strength?: number;
+    restore_face?: boolean;
+  }): Promise<{ prompt_id: string; client_id: string }> {
+    const resp = await fetch(`${this.baseUrl}/v1/generate/img2img`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(params),
+    });
+    return resp.json();
+  }
+
+  async generateInpaint(params: {
+    prompt: string;
+    source_image: string;
+    mask_image: string;
+    negative_prompt?: string;
+    denoise_strength?: number;
+    width?: number;
+    height?: number;
+    steps?: number;
+    cfg?: number;
+    seed?: number;
+    lora_name?: string;
+    lora_strength?: number;
+    restore_face?: boolean;
+  }): Promise<{ prompt_id: string; client_id: string }> {
+    const resp = await fetch(`${this.baseUrl}/v1/generate/inpaint`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(params),
+    });
+    return resp.json();
+  }
+
+  // ─── Prompt Templates ───────────────────────────────────────────────────
+
+  async listTemplates(category?: string): Promise<PromptTemplate[]> {
+    try {
+      const qs = category ? `?category=${category}` : "";
+      const resp = await fetch(`${this.baseUrl}/v1/generate/templates${qs}`);
+      return resp.json();
+    } catch {
+      return [];
+    }
+  }
+
+  async generateFromTemplate(params: {
+    template_id: string;
+    subject?: string;
+    seed?: number;
+    restore_face?: boolean;
+  }): Promise<{ prompt_id: string; client_id: string }> {
+    const qs = new URLSearchParams();
+    qs.set("template_id", params.template_id);
+    if (params.subject) qs.set("subject", params.subject);
+    if (params.seed !== undefined) qs.set("seed", String(params.seed));
+    if (params.restore_face !== undefined) qs.set("restore_face", String(params.restore_face));
+    const resp = await fetch(`${this.baseUrl}/v1/generate/from-template?${qs}`, {
+      method: "POST",
+    });
+    return resp.json();
+  }
+
+  // ─── Cancel Generation ──────────────────────────────────────────────────
+
+  async cancelGeneration(promptId: string): Promise<void> {
+    try {
+      await fetch(`${this.baseUrl}/v1/generate/cancel`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ prompt_id: promptId }),
+      });
+    } catch {
+      // Ignore cancel failures
+    }
+  }
+
   // ─── WebSocket ────────────────────────────────────────────────────────
 
   connectGenerationWs(clientId: string): WebSocket {
@@ -501,6 +592,21 @@ export interface TrainingJob {
   current_epoch: number;
   total_epochs: number;
   eta_seconds: number;
+}
+
+export interface PromptTemplate {
+  id: string;
+  name: string;
+  category: string;
+  base_prompt: string;
+  negative_prompt: string;
+  pipeline: string;
+  width: number;
+  height: number;
+  steps: number;
+  cfg: number;
+  restore_face: boolean;
+  tags: string[];
 }
 
 export interface DropDetail extends DropEntry {
