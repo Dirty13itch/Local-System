@@ -662,15 +662,15 @@ def flux_img2img(
         },
         # Resize to target dimensions
         "51": {
-            "class_type": "ImageResize+",
+            "class_type": "Image Resize",
             "inputs": {
                 "image": ["50", 0],
-                "width": width,
-                "height": height,
-                "interpolation": "lanczos",
-                "method": "stretch",
-                "condition": "always",
-                "multiple_of": 8,
+                "mode": "resize",
+                "supersample": "true",
+                "resampling": "lanczos",
+                "rescale_factor": 1,
+                "resize_width": width,
+                "resize_height": height,
             },
         },
         # Encode source image to latent
@@ -764,15 +764,15 @@ def realvis_img2img(
             "inputs": {"image": source_image},
         },
         "51": {
-            "class_type": "ImageResize+",
+            "class_type": "Image Resize",
             "inputs": {
                 "image": ["50", 0],
-                "width": width,
-                "height": height,
-                "interpolation": "lanczos",
-                "method": "stretch",
-                "condition": "always",
-                "multiple_of": 8,
+                "mode": "resize",
+                "supersample": "true",
+                "resampling": "lanczos",
+                "rescale_factor": 1,
+                "resize_width": width,
+                "resize_height": height,
             },
         },
         "52": {
@@ -876,15 +876,15 @@ def flux_inpaint(
             "inputs": {"image": source_image},
         },
         "51": {
-            "class_type": "ImageResize+",
+            "class_type": "Image Resize",
             "inputs": {
                 "image": ["50", 0],
-                "width": width,
-                "height": height,
-                "interpolation": "lanczos",
-                "method": "stretch",
-                "condition": "always",
-                "multiple_of": 8,
+                "mode": "resize",
+                "supersample": "true",
+                "resampling": "lanczos",
+                "rescale_factor": 1,
+                "resize_width": width,
+                "resize_height": height,
             },
         },
         # Mask image (white = repaint, black = keep)

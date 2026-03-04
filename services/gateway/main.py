@@ -616,6 +616,9 @@ async def list_pipelines() -> list[dict]:
         {"id": "face-swap", "name": "ReActor Face Swap", "type": "swap", "est_time": "10-15s"},
         {"id": "queen-portrait", "name": "Queen Portrait (832x1216)", "type": "queen", "est_time": "60-90s"},
         {"id": "queen-scene", "name": "Queen Scene (1344x768)", "type": "queen", "est_time": "60-90s"},
+        {"id": "flux-img2img", "name": "FLUX Img2Img", "type": "img2img", "est_time": "30-50s"},
+        {"id": "realvis-img2img", "name": "RealVisXL Img2Img", "type": "img2img", "est_time": "20-30s"},
+        {"id": "flux-inpaint", "name": "FLUX Inpaint", "type": "inpaint", "est_time": "35-55s"},
     ]
 
 
