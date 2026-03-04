@@ -728,6 +728,14 @@ async def search_performers(
             if q.lower() not in name and q.lower() not in aliases:
                 continue
 
+        # Coerce career dates to strings (JSON may have int values like 2018)
+        career_start = p.get("careerStart")
+        career_end = p.get("careerEnd")
+        if career_start is not None:
+            career_start = str(career_start)
+        if career_end is not None:
+            career_end = str(career_end)
+
         results.append(PerformerInfo(
             name=p.get("name", ""),
             rating=rating,
@@ -737,8 +745,8 @@ async def search_performers(
             body_type=p.get("bodyType"),
             ethnicity=p.get("ethnicity"),
             nationality=p.get("nationality"),
-            career_start=p.get("careerStart"),
-            career_end=p.get("careerEnd"),
+            career_start=career_start,
+            career_end=career_end,
             is_favorite=p.get("isFavorite", False),
         ))
 
