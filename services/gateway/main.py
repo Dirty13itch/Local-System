@@ -41,7 +41,7 @@ from local_system.models import (
 )
 from local_system.utils import setup_logging
 
-from .auto_gen import auto_gen
+from .auto_gen import auto_gen, generate_prompts_llm
 from .dna_engine import dna_to_prompt_modifiers
 from .pipelines import PIPELINE_PRESETS, flux_faceid, flux_uncensored, queen_portrait, queen_scene, face_swap as build_face_swap
 from .queens import get_queen, load_queens, reload_queens
@@ -885,3 +885,26 @@ async def serve_drop_ref(name: str, filename: str) -> StreamingResponse:
         media_type=content_type,
         headers={"Cache-Control": "public, max-age=86400"},
     )
+
+
+@app.post("/v1/generate/preview-prompts")
+async def preview_prompts(request: Request) -> dict:
+    """Preview what the LLM would generate as image prompts for a subject.
+
+    Body: { "subject": "person name", "count": 3, "context": "optional extra info" }
+    """
+    body = await request.json()
+    subject = body.get("subject", "")
+    count = body.get("count", 3)
+    context = body.get("context", "")
+
+    if not subject:
+        raise HTTPException(status_code=400, detail="'subject' is required")
+
+    prompts = await generate_prompts_llm(
+        subject_name=subject,
+        count=min(count, 6),
+        context=context,
+    )
+
+    return {"subject": subject, "count": len(prompts), "prompts": prompts}

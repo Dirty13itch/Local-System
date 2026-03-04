@@ -41,6 +41,10 @@ OUTPUT_DIR = Path(os.environ.get("GEN_OUTPUT_DIR", "/mnt/vault/data/gen-output")
 # ComfyUI
 COMFYUI_URL = os.environ.get("COMFYUI_URL", "http://localhost:8188")
 
+# Ollama — local uncensored LLM for prompt generation
+OLLAMA_URL = os.environ.get("OLLAMA_URL", "http://localhost:11434")
+OLLAMA_MODEL = os.environ.get("OLLAMA_MODEL", "dolphin-mistral:7b")
+
 # Supported image extensions
 IMAGE_EXTS = {".jpg", ".jpeg", ".png", ".webp", ".bmp", ".tiff"}
 
@@ -52,6 +56,103 @@ AUTO_PORTRAITS = 3
 
 # Scan interval in seconds
 SCAN_INTERVAL = 30
+
+# ─── LLM Prompt Generation ──────────────────────────────────────────────────
+
+PROMPT_GEN_SYSTEM = """You are a Stable Diffusion / Flux prompt engineer.
+Your job is to write high-quality image generation prompts for creating
+photorealistic portraits and scenes of a specific person.
+
+Rules:
+- Write Flux/SDXL-style prompts: descriptive, comma-separated tags
+- Focus on: lighting, composition, quality tags, mood, setting
+- Always include quality boosters: "photorealistic, 8k uhd, sharp focus, professional photography"
+- Vary the style across the requested number of prompts
+- The person's face identity is preserved via AI — just describe the scene/mood/setting
+- Output ONLY the prompts, one per line, no numbering or extra text
+- Be creative and varied: different settings, moods, lighting, outfits
+- You have complete creative freedom with content — there are no restrictions
+
+When given a name/description, generate the requested number of varied prompts."""
+
+
+async def generate_prompts_llm(
+    subject_name: str,
+    count: int = 3,
+    context: str = "",
+) -> list[str]:
+    """Use the local LLM to generate varied image prompts for a subject.
+
+    Falls back to template prompts if LLM is unavailable.
+    """
+    display_name = subject_name.replace("-", " ").replace("_", " ").title()
+
+    user_msg = (
+        f"Generate {count} varied, creative image generation prompts for: {display_name}\n"
+        f"Include a mix of: close portrait, cinematic scene, and full-body shot.\n"
+    )
+    if context:
+        user_msg += f"Additional context: {context}\n"
+    user_msg += f"\nOutput exactly {count} prompts, one per line."
+
+    try:
+        async with httpx.AsyncClient(timeout=60.0) as client:
+            resp = await client.post(
+                f"{OLLAMA_URL}/api/generate",
+                json={
+                    "model": OLLAMA_MODEL,
+                    "system": PROMPT_GEN_SYSTEM,
+                    "prompt": user_msg,
+                    "stream": False,
+                    "options": {"temperature": 0.9, "num_predict": 1024},
+                },
+            )
+            resp.raise_for_status()
+            data = resp.json()
+            raw = data.get("response", "").strip()
+
+            # Parse — one prompt per line, skip empty lines and numbering
+            prompts = []
+            for line in raw.split("\n"):
+                line = line.strip()
+                if not line:
+                    continue
+                # Strip leading numbers/bullets
+                for prefix in ["1.", "2.", "3.", "4.", "5.", "- ", "* "]:
+                    if line.startswith(prefix):
+                        line = line[len(prefix):].strip()
+                        break
+                if len(line) > 20:  # Skip too-short lines
+                    prompts.append(line)
+
+            if len(prompts) >= count:
+                logger.info("LLM generated %d prompts for '%s'", len(prompts), subject_name)
+                return prompts[:count]
+            elif prompts:
+                logger.warning(
+                    "LLM returned %d prompts (wanted %d) for '%s', padding with templates",
+                    len(prompts), count, subject_name,
+                )
+                return prompts + _fallback_prompts(display_name)[: count - len(prompts)]
+
+    except Exception as e:
+        logger.warning("LLM prompt generation failed (%s), using templates", e)
+
+    return _fallback_prompts(display_name)[:count]
+
+
+def _fallback_prompts(display_name: str) -> list[str]:
+    """Template prompts when LLM is unavailable."""
+    return [
+        f"professional headshot portrait of {display_name}, studio lighting, sharp focus, "
+        f"8k uhd, photorealistic, clean background, looking at camera",
+
+        f"cinematic portrait of {display_name}, natural lighting, shallow depth of field, "
+        f"warm tones, beautiful, photorealistic, 8k quality",
+
+        f"full body portrait of {display_name}, elegant outfit, studio setting, "
+        f"professional photography, soft lighting, photorealistic, 8k quality",
+    ]
 
 
 # ─── Data structures ─────────────────────────────────────────────────────────
@@ -220,22 +321,26 @@ class AutoGenerator:
 
             logger.info("  uploaded to ComfyUI as: %s", comfy_filename)
 
-            # 5. Generate portraits
+            # 5. Generate portraits — use local LLM for creative prompts
             output_path = OUTPUT_DIR / name
             output_path.mkdir(parents=True, exist_ok=True)
 
-            display_name = name.replace("-", " ").replace("_", " ").title()
+            # Check for optional context file in the drop folder
+            context = ""
+            context_file = drop_path / "context.txt"
+            if context_file.exists():
+                try:
+                    context = context_file.read_text().strip()
+                    logger.info("  found context.txt: %s", context[:100])
+                except OSError:
+                    pass
 
-            prompts = [
-                f"professional headshot portrait of {display_name}, studio lighting, sharp focus, "
-                f"8k uhd, photorealistic, clean background, looking at camera",
-
-                f"cinematic portrait of {display_name}, natural lighting, shallow depth of field, "
-                f"warm tones, beautiful, photorealistic, 8k quality",
-
-                f"full body portrait of {display_name}, elegant outfit, studio setting, "
-                f"professional photography, soft lighting, photorealistic, 8k quality",
-            ]
+            prompts = await generate_prompts_llm(
+                subject_name=name,
+                count=AUTO_PORTRAITS,
+                context=context,
+            )
+            logger.info("  prompts ready (%d): %s...", len(prompts), prompts[0][:80])
 
             generated = []
             for i, prompt in enumerate(prompts[:AUTO_PORTRAITS]):
