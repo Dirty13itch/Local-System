@@ -730,7 +730,9 @@ async def search_performers(
             if q.lower() not in name and q.lower() not in aliases:
                 continue
 
-        # Coerce career dates to strings (JSON may have int values like 2018)
+        # Coerce field types — performers.json has mixed types:
+        #   careerStart/careerEnd: int or None → str | None
+        #   implants: "yes"/"no"/"unknown" → bool | None
         career_start = p.get("careerStart")
         career_end = p.get("careerEnd")
         if career_start is not None:
@@ -738,12 +740,19 @@ async def search_performers(
         if career_end is not None:
             career_end = str(career_end)
 
+        impl_raw = str(p.get("implants", "")).lower()
+        implants: bool | None = (
+            True if impl_raw == "yes"
+            else False if impl_raw == "no"
+            else None
+        )
+
         results.append(PerformerInfo(
             name=p.get("name", ""),
-            rating=rating,
+            rating=float(rating),
             height=p.get("height"),
             bust=p.get("braSize"),
-            implants=p.get("implants"),
+            implants=implants,
             body_type=p.get("bodyType"),
             ethnicity=p.get("ethnicity"),
             nationality=p.get("nationality"),
