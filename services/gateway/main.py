@@ -711,12 +711,14 @@ async def search_performers(
     results = []
 
     for p in performers:
-        rating = p.get("rating", 0)
+        rating = p.get("rating") or 0
         if isinstance(rating, str):
             try:
                 rating = float(rating)
             except ValueError:
                 rating = 0.0
+        elif not isinstance(rating, (int, float)):
+            rating = 0.0
 
         if rating < min_rating:
             continue
