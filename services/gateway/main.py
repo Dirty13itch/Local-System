@@ -45,7 +45,9 @@ from local_system.utils import setup_logging
 from .auto_gen import auto_gen, generate_prompts_llm
 from .dna_engine import dna_to_prompt_modifiers
 from .pipelines import PIPELINE_PRESETS, flux_faceid, flux_uncensored, queen_portrait, queen_scene, face_swap as build_face_swap
+from .prompt_templates import fill_template, get_template, list_templates
 from .queens import get_queen, load_queens, reload_queens
+from .scene_builder import build_portrait_prompt, build_scene_negative, build_scene_prompt
 
 settings = get_settings()
 logger = setup_logging("gateway", settings)
@@ -640,7 +642,11 @@ async def reload_queen_data(request: Request) -> dict:
 
 @app.post("/v1/generate/queen", response_model=GenerateImageResponse)
 async def generate_queen(request: Request, body: QueenGenerateRequest) -> GenerateImageResponse:
-    """Generate queen portrait or scene with face identity."""
+    """Generate queen portrait or scene with face identity.
+
+    Uses the scene builder for proper prompt construction from queen physical
+    blueprint, DNA modifiers (with explicit mode), and scene descriptions.
+    """
     _verify_api_key(request)
     client = _client(request)
 
@@ -648,20 +654,16 @@ async def generate_queen(request: Request, body: QueenGenerateRequest) -> Genera
     if not q:
         raise HTTPException(status_code=404, detail=f"Queen not found: {body.queen_id}")
 
-    # Build prompt: queen's base prompt + optional scene + DNA modifiers
+    # Build prompt using scene builder (explicit mode enabled)
     if body.prompt_override:
         prompt = body.prompt_override
     elif body.mode == "scene" and body.scene_index is not None and body.scene_index < len(q.scenes):
-        scene = q.scenes[body.scene_index]
-        prompt = scene.flux_prompt or f"{q.flux_portrait_prompt}, {scene.title}"
+        prompt = build_scene_prompt(q, body.scene_index, explicit=True)
     else:
-        prompt = q.flux_portrait_prompt or f"portrait of {q.name}, beautiful woman"
+        prompt = build_portrait_prompt(q, explicit=True)
 
-    # Append DNA-derived mood modifiers
-    dna_dict = q.dna.model_dump()
-    dna_modifiers = dna_to_prompt_modifiers(dna_dict)
-    if dna_modifiers:
-        prompt = f"{prompt}, {dna_modifiers}"
+    # Negative prompt with anti-censorship tags
+    neg = build_scene_negative(explicit=True)
 
     # Choose reference image (first available)
     ref_image = q.reference_images[0] if q.reference_images else None
@@ -671,11 +673,13 @@ async def generate_queen(request: Request, body: QueenGenerateRequest) -> Genera
         workflow_data = queen_scene(
             prompt=prompt, reference_image=ref_image, lora_name=q.lora_name,
             identity_strength=body.identity_strength, seed=body.seed,
+            negative_prompt=neg,
         )
     else:
         workflow_data = queen_portrait(
             prompt=prompt, reference_image=ref_image, lora_name=q.lora_name,
             identity_strength=body.identity_strength, seed=body.seed,
+            negative_prompt=neg,
         )
 
     try:
@@ -691,9 +695,71 @@ async def generate_queen(request: Request, body: QueenGenerateRequest) -> Genera
 
 
 @app.post("/v1/generate/dna-prompt")
-async def dna_prompt(traits: dict[str, int]) -> dict:
-    """Convert 19-trait DNA profile into prompt modifiers."""
-    return {"modifiers": dna_to_prompt_modifiers(traits)}
+async def dna_prompt(traits: dict[str, int], explicit: bool = False) -> dict:
+    """Convert 19-trait DNA profile into prompt modifiers.
+
+    Set explicit=True for NSFW scene descriptors (body positioning, clothing
+    state, expression intensity, etc.) in addition to aesthetic modifiers.
+    """
+    return {"modifiers": dna_to_prompt_modifiers(traits, explicit=explicit)}
+
+
+# ─── Prompt Templates ─────────────────────────────────────────────────────
+
+
+@app.get("/v1/generate/templates")
+async def get_templates(category: str | None = None) -> list[dict]:
+    """List available prompt templates, optionally filtered by category.
+
+    Categories: character_portrait, intimate_portrait, glamour, explicit_scene
+    """
+    return list_templates(category)
+
+
+@app.post("/v1/generate/from-template")
+async def generate_from_template(
+    request: Request,
+    template_id: str,
+    subject: str = "beautiful woman",
+    seed: int = -1,
+    restore_face: bool | None = None,
+) -> GenerateImageResponse:
+    """Generate an image from a prompt template.
+
+    Fills the template's {subject} placeholder with the provided subject
+    description and submits to ComfyUI using the template's recommended
+    pipeline and dimensions.
+    """
+    _verify_api_key(request)
+    client = _client(request)
+
+    params = fill_template(template_id, subject)
+    if not params:
+        raise HTTPException(status_code=404, detail=f"Template not found: {template_id}")
+
+    pipeline_name = params.pop("pipeline", "flux-uncensored")
+    pipeline_fn = PIPELINE_PRESETS.get(pipeline_name)
+    if not pipeline_fn:
+        pipeline_fn = flux_uncensored
+
+    # Override restore_face if caller specified
+    if restore_face is not None:
+        params["restore_face"] = restore_face
+
+    params["seed"] = seed
+
+    workflow_data = pipeline_fn(**params)
+
+    try:
+        resp = await client.post(f"{COMFYUI_URL}/prompt", json=workflow_data, timeout=30.0)
+        resp.raise_for_status()
+        data = resp.json()
+        return GenerateImageResponse(
+            prompt_id=data.get("prompt_id", ""),
+            client_id=workflow_data.get("client_id", ""),
+        )
+    except httpx.RequestError as e:
+        raise HTTPException(status_code=502, detail=f"ComfyUI unavailable: {e}") from e
 
 
 # ─── Performers ───────────────────────────────────────────────────────────

@@ -2,6 +2,11 @@
 
 Maps trait combinations to lighting, mood, pose, expression, and environment
 descriptors that get appended to Flux generation prompts.
+
+Two modes:
+    - Aesthetic (default): Portrait photography descriptors — lighting, mood, gaze
+    - Explicit (explicit=True): NSFW scene descriptors — body positioning, clothing
+      state, expression intensity, physical interaction keywords
 """
 
 from __future__ import annotations
@@ -12,11 +17,17 @@ HIGH = 7
 LOW = 4
 
 
-def dna_to_prompt_modifiers(traits: dict[str, int]) -> str:
+def dna_to_prompt_modifiers(traits: dict[str, int], explicit: bool = False) -> str:
     """Convert a queen's 19-trait DNA profile into prompt style modifiers.
 
     Takes a dict of trait_name -> score (1-10) and returns a comma-separated
     string of visual/mood descriptors suitable for appending to a Flux prompt.
+
+    Args:
+        traits: Dict of trait_name -> score (1-10).
+        explicit: If True, generates NSFW-specific modifiers for body positioning,
+                  clothing state, expression intensity, and explicit scene tags
+                  in addition to aesthetic modifiers.
 
     Trait Definitions:
         dominance, submission, exhibitionism, voyeurism, nurturing, corruption,
@@ -27,6 +38,8 @@ def dna_to_prompt_modifiers(traits: dict[str, int]) -> str:
     modifiers: list[str] = []
 
     d = {k.lower().replace(" ", "_"): v for k, v in traits.items()}
+
+    # ── Aesthetic modifiers (always applied) ──────────────────────────────
 
     # --- Dominant archetype ---
     if d.get("dominance", 5) >= HIGH and d.get("intensity", 5) >= HIGH:
@@ -108,4 +121,107 @@ def dna_to_prompt_modifiers(traits: dict[str, int]) -> str:
     elif intensity >= HIGH:
         modifiers.append("high contrast lighting, cinematic atmosphere")
 
+    # ── Explicit modifiers (NSFW mode) ────────────────────────────────────
+
+    if explicit:
+        modifiers.extend(_explicit_modifiers(d))
+
     return ", ".join(modifiers) if modifiers else "natural beauty, elegant pose"
+
+
+def _explicit_modifiers(d: dict[str, int]) -> list[str]:
+    """Generate NSFW-specific modifiers based on DNA trait combinations.
+
+    Maps traits to: clothing state, body positioning, expression intensity,
+    skin detail, and explicit scene descriptors.
+    """
+    mods: list[str] = []
+
+    # ── Clothing state (driven by exhibitionism + taboo_comfort) ─────────
+    exhib = d.get("exhibitionism", 5)
+    taboo = d.get("taboo_comfort", 5)
+    playful = d.get("playfulness", 5)
+
+    if exhib >= 9 and taboo >= 8:
+        mods.append("fully nude, completely naked, bare skin")
+    elif exhib >= HIGH and taboo >= HIGH:
+        mods.append("nude, naked body, exposed skin")
+    elif exhib >= HIGH:
+        mods.append("topless, sheer lingerie, barely covered")
+    elif exhib >= 5:
+        mods.append("revealing lingerie, lace bra, sheer fabric")
+    else:
+        mods.append("partially unbuttoned, suggestive clothing, hint of skin")
+
+    # ── Body positioning (driven by submission/dominance + intensity) ─────
+    dom = d.get("dominance", 5)
+    sub = d.get("submission", 5)
+    intensity = d.get("intensity", 5)
+    devotion = d.get("devotion", 5)
+
+    if sub >= HIGH and devotion >= HIGH:
+        mods.append("kneeling pose, head tilted back, arched back, submissive position")
+    elif sub >= HIGH:
+        mods.append("on knees, looking up, hands behind back, vulnerable pose")
+    elif dom >= HIGH and intensity >= HIGH:
+        mods.append("standing over viewer, legs apart, hands on hips, dominant pose")
+    elif dom >= HIGH:
+        mods.append("confident spread, leaning forward, assertive body language")
+    elif playful >= HIGH:
+        mods.append("playful pose, lying on bed, legs crossed, flirtatious position")
+    else:
+        mods.append("natural pose, relaxed position, candid angle")
+
+    # ── Expression intensity (driven by sensory_focus + intensity) ────────
+    sensory = d.get("sensory_focus", 5)
+    emotional = d.get("emotional_openness", 5)
+
+    if sensory >= HIGH and intensity >= HIGH:
+        mods.append("ecstatic expression, lips parted, heavy-lidded eyes, flushed skin")
+    elif sensory >= HIGH:
+        mods.append("aroused expression, parted lips, half-closed eyes, pleasure")
+    elif emotional >= HIGH:
+        mods.append("intimate expression, bedroom eyes, soft moan, desire")
+    elif intensity >= HIGH:
+        mods.append("intense expression, fierce desire, passionate gaze")
+    else:
+        mods.append("seductive expression, knowing smile, inviting look")
+
+    # ── Skin detail (driven by sensory_focus) ────────────────────────────
+    if sensory >= HIGH:
+        mods.append("detailed skin texture, visible pores, natural skin imperfections")
+        mods.append("sweat glistening on skin, body moisture, wet skin highlights")
+
+    # ── Power dynamics scene cues ────────────────────────────────────────
+    power = d.get("power_exchange", 5)
+    corruption = d.get("corruption", 5)
+    ritualism = d.get("ritualism", 5)
+
+    if power >= HIGH and corruption >= HIGH:
+        mods.append("leather accessories, collar, restraint marks")
+    elif power >= HIGH:
+        mods.append("power dynamic, tension between partners, charged touch")
+
+    if ritualism >= HIGH and corruption >= HIGH:
+        mods.append("candle wax, dim candlelight, ritual atmosphere")
+    elif ritualism >= HIGH:
+        mods.append("deliberate placement, posed arrangement, intentional staging")
+
+    # ── Voyeur framing ───────────────────────────────────────────────────
+    voyeur = d.get("voyeurism", 5)
+    if voyeur >= HIGH:
+        mods.append("caught unaware angle, through doorway perspective, voyeuristic framing")
+
+    # ── Spontaneity vs staged ────────────────────────────────────────────
+    spont = d.get("spontaneity", 5)
+    if spont >= HIGH:
+        mods.append("caught in the moment, spontaneous undressing, natural movement")
+
+    # ── Intimacy closeness ───────────────────────────────────────────────
+    intimacy = d.get("intimacy_threshold", 5)
+    if intimacy <= LOW:
+        mods.append("extreme close-up, intimate camera angle, personal space invasion")
+    elif intimacy >= HIGH:
+        mods.append("full body shot, observational distance, composed framing")
+
+    return mods
