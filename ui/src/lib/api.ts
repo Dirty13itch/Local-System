@@ -306,6 +306,48 @@ class ApiClient {
       return { checkpoints: [], loras: [] };
     }
   }
+
+  // ─── Drop Folder (Auto-Gen) ──────────────────────────────────────────
+
+  async listDrops(): Promise<DropsStatus> {
+    try {
+      const resp = await fetch(`${this.baseUrl}/v1/generate/drops`);
+      return resp.json();
+    } catch {
+      return { scanner_running: false, total_drops: 0, pending: 0, processing: 0, done: 0, errors: 0, entries: [] };
+    }
+  }
+
+  async getDropDetail(name: string): Promise<DropDetail | null> {
+    try {
+      const resp = await fetch(`${this.baseUrl}/v1/generate/drops/${encodeURIComponent(name)}`);
+      if (!resp.ok) return null;
+      return resp.json();
+    } catch {
+      return null;
+    }
+  }
+
+  async processDrop(name: string): Promise<void> {
+    await fetch(`${this.baseUrl}/v1/generate/drops/${encodeURIComponent(name)}/process`, { method: "POST" });
+  }
+
+  async retryDrop(name: string): Promise<void> {
+    await fetch(`${this.baseUrl}/v1/generate/drops/${encodeURIComponent(name)}/retry`, { method: "POST" });
+  }
+
+  async scanDrops(): Promise<{ pending: number; names: string[] }> {
+    const resp = await fetch(`${this.baseUrl}/v1/generate/drops/scan`, { method: "POST" });
+    return resp.json();
+  }
+
+  getDropImageUrl(name: string, filename: string): string {
+    return `${this.baseUrl}/v1/generate/drops/${encodeURIComponent(name)}/image/${encodeURIComponent(filename)}`;
+  }
+
+  getDropRefUrl(name: string, filename: string): string {
+    return `${this.baseUrl}/v1/generate/drops/${encodeURIComponent(name)}/ref/${encodeURIComponent(filename)}`;
+  }
 }
 
 // ─── Types ─────────────────────────────────────────────────────────────
@@ -361,6 +403,41 @@ export interface PerformerInfo {
   ethnicity: string | null;
   nationality: string | null;
   is_favorite: boolean;
+}
+
+export interface DropEntry {
+  name: string;
+  image_count: number;
+  status: "pending" | "processing" | "done" | "error";
+  error?: string;
+  created_at: number;
+  processed_at?: number;
+  refs_created: number;
+  images_generated: number;
+}
+
+export interface DropsStatus {
+  scanner_running: boolean;
+  total_drops: number;
+  pending: number;
+  processing: number;
+  done: number;
+  errors: number;
+  entries: DropEntry[];
+}
+
+export interface DropDetail extends DropEntry {
+  manifest?: {
+    name: string;
+    source_count: number;
+    ref_images: string[];
+    generated_images: string[];
+    prompt_used: string;
+    pipeline: string;
+    processed_at: string;
+    identity_method: string;
+  };
+  output_images?: string[];
 }
 
 export const api = new ApiClient(BASE_URL);

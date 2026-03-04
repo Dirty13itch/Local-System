@@ -41,6 +41,7 @@ from local_system.models import (
 )
 from local_system.utils import setup_logging
 
+from .auto_gen import auto_gen
 from .dna_engine import dna_to_prompt_modifiers
 from .pipelines import PIPELINE_PRESETS, flux_faceid, flux_uncensored, queen_portrait, queen_scene, face_swap as build_face_swap
 from .queens import get_queen, load_queens, reload_queens
@@ -95,7 +96,14 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     logger.info("Gateway starting", extra={"node": settings.node.name.value})
     app.state.http_client = httpx.AsyncClient(timeout=httpx.Timeout(120.0))
     app.state.start_time = time.time()
+
+    # Start auto-generation scanner (watches gen-drops folder)
+    auto_gen.comfyui_url = COMFYUI_URL
+    auto_gen.start_scanner()
+
     yield
+
+    auto_gen.stop_scanner()
     await app.state.http_client.aclose()
     logger.info("Gateway stopped")
 
@@ -736,3 +744,144 @@ async def search_performers(
     # Sort by rating descending
     results.sort(key=lambda x: x.rating, reverse=True)
     return results[:limit]
+
+
+# ─── Auto-Generation (Drop Folder) ────────────────────────────────────────
+
+
+@app.get("/v1/generate/drops")
+async def list_drops() -> dict:
+    """List all drop folders and their processing status."""
+    return auto_gen.get_status()
+
+
+@app.get("/v1/generate/drops/{name}")
+async def get_drop_detail(name: str) -> dict:
+    """Get details for a specific drop folder."""
+    entries = auto_gen.scan_drops()
+    for e in entries:
+        if e.name == name:
+            from dataclasses import asdict
+            result = asdict(e)
+            # Also include manifest if processed
+            manifest_path = auto_gen.REFS_DIR / name / "manifest.json" if hasattr(auto_gen, 'REFS_DIR') else None
+            from .auto_gen import REFS_DIR, OUTPUT_DIR
+            manifest_path = REFS_DIR / name / "manifest.json"
+            if manifest_path.exists():
+                import json as _json
+                result["manifest"] = _json.loads(manifest_path.read_text())
+            # Include output images
+            output_dir = OUTPUT_DIR / name
+            if output_dir.exists():
+                result["output_images"] = [f.name for f in output_dir.iterdir() if f.suffix.lower() in {".jpg", ".jpeg", ".png", ".webp"}]
+            return result
+    raise HTTPException(status_code=404, detail=f"Drop not found: {name}")
+
+
+@app.post("/v1/generate/drops/{name}/process")
+async def process_drop(request: Request, name: str) -> dict:
+    """Manually trigger processing of a specific drop folder."""
+    _verify_api_key(request)
+
+    from fastapi import BackgroundTasks
+    import asyncio
+
+    # Run in background so we return immediately
+    asyncio.create_task(auto_gen.process_drop(name))
+    return {"status": "processing", "name": name, "message": f"Processing started for '{name}'"}
+
+
+@app.post("/v1/generate/drops/{name}/retry")
+async def retry_drop(request: Request, name: str) -> dict:
+    """Retry a failed drop by clearing error marker and reprocessing."""
+    _verify_api_key(request)
+
+    from .auto_gen import DROPS_DIR
+    error_marker = DROPS_DIR / name / ".error"
+    done_marker = DROPS_DIR / name / ".done"
+
+    if error_marker.exists():
+        error_marker.unlink()
+    if done_marker.exists():
+        done_marker.unlink()
+
+    import asyncio
+    asyncio.create_task(auto_gen.process_drop(name))
+    return {"status": "retrying", "name": name}
+
+
+@app.post("/v1/generate/drops/scan")
+async def scan_drops_now(request: Request) -> dict:
+    """Force an immediate scan and process all pending drops."""
+    _verify_api_key(request)
+
+    pending = auto_gen.get_pending()
+    if not pending:
+        return {"message": "No pending drops", "pending": 0}
+
+    import asyncio
+    for entry in pending:
+        asyncio.create_task(auto_gen.process_drop(entry.name))
+
+    return {
+        "message": f"Processing {len(pending)} drops",
+        "pending": len(pending),
+        "names": [e.name for e in pending],
+    }
+
+
+@app.get("/v1/generate/drops/{name}/images")
+async def get_drop_images(name: str) -> list[str]:
+    """Get generated image URLs for a processed drop."""
+    from .auto_gen import OUTPUT_DIR
+    output_dir = OUTPUT_DIR / name
+    if not output_dir.exists():
+        return []
+
+    # Return gateway-proxied URLs
+    images = []
+    for f in sorted(output_dir.iterdir()):
+        if f.suffix.lower() in {".jpg", ".jpeg", ".png", ".webp"}:
+            images.append(f"/v1/generate/drops/{name}/image/{f.name}")
+    return images
+
+
+@app.get("/v1/generate/drops/{name}/image/{filename}")
+async def serve_drop_image(name: str, filename: str) -> StreamingResponse:
+    """Serve a generated image from the output folder."""
+    from .auto_gen import OUTPUT_DIR
+
+    image_path = OUTPUT_DIR / name / filename
+    if not image_path.exists():
+        raise HTTPException(status_code=404, detail="Image not found")
+
+    # Determine content type
+    ext = image_path.suffix.lower()
+    content_types = {".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".png": "image/png", ".webp": "image/webp"}
+    content_type = content_types.get(ext, "application/octet-stream")
+
+    return StreamingResponse(
+        open(image_path, "rb"),
+        media_type=content_type,
+        headers={"Cache-Control": "public, max-age=86400"},
+    )
+
+
+@app.get("/v1/generate/drops/{name}/ref/{filename}")
+async def serve_drop_ref(name: str, filename: str) -> StreamingResponse:
+    """Serve a reference image from the refs folder."""
+    from .auto_gen import REFS_DIR
+
+    image_path = REFS_DIR / name / filename
+    if not image_path.exists():
+        raise HTTPException(status_code=404, detail="Reference image not found")
+
+    ext = image_path.suffix.lower()
+    content_types = {".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".png": "image/png", ".webp": "image/webp"}
+    content_type = content_types.get(ext, "application/octet-stream")
+
+    return StreamingResponse(
+        open(image_path, "rb"),
+        media_type=content_type,
+        headers={"Cache-Control": "public, max-age=86400"},
+    )
