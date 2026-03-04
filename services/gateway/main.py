@@ -559,6 +559,28 @@ async def generation_status(request: Request) -> GenerationStatus:
     )
 
 
+@app.post("/v1/generate/cancel")
+async def cancel_generation(request: Request, body: dict) -> dict:
+    """Cancel a running or queued generation by prompt_id."""
+    client = _client(request)
+    prompt_id = body.get("prompt_id", "")
+    if not prompt_id:
+        raise HTTPException(status_code=400, detail="prompt_id required")
+    try:
+        # ComfyUI cancel API — delete from queue
+        resp = await client.post(
+            f"{COMFYUI_URL}/queue",
+            json={"delete": [prompt_id]},
+            timeout=5.0,
+        )
+        resp.raise_for_status()
+        # Also try interrupt (stops currently running)
+        await client.post(f"{COMFYUI_URL}/interrupt", timeout=5.0)
+        return {"status": "cancelled", "prompt_id": prompt_id}
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=str(e)) from e
+
+
 @app.post("/v1/generate/upload")
 async def upload_image(request: Request) -> dict:
     """Proxy image upload to ComfyUI."""
