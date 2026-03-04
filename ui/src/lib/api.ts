@@ -348,6 +348,74 @@ class ApiClient {
   getDropRefUrl(name: string, filename: string): string {
     return `${this.baseUrl}/v1/generate/drops/${encodeURIComponent(name)}/ref/${encodeURIComponent(filename)}`;
   }
+
+  // ─── Training ─────────────────────────────────────────────────────────
+
+  async startTraining(params: {
+    trigger_word: string;
+    model_type?: string;
+    dataset_path?: string;
+    epochs?: number;
+  }): Promise<TrainingJob> {
+    const resp = await fetch(`${this.baseUrl}/v1/generate/train`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(params),
+    });
+    return resp.json();
+  }
+
+  async getTrainingStatus(jobId: string): Promise<TrainingJob> {
+    const resp = await fetch(`${this.baseUrl}/v1/generate/train/${jobId}`);
+    return resp.json();
+  }
+
+  async listTrainingJobs(): Promise<TrainingJob[]> {
+    try {
+      const resp = await fetch(`${this.baseUrl}/v1/generate/train`);
+      return resp.json();
+    } catch {
+      return [];
+    }
+  }
+
+  // ─── Performer Refs ───────────────────────────────────────────────────
+
+  async uploadPerformerRef(performerName: string, file: File): Promise<{
+    performer: string;
+    slug: string;
+    filename: string;
+    total_refs: number;
+  }> {
+    const form = new FormData();
+    form.append("performer_name", performerName);
+    form.append("file", file);
+    const resp = await fetch(`${this.baseUrl}/v1/generate/upload-ref`, {
+      method: "POST",
+      body: form,
+    });
+    return resp.json();
+  }
+
+  async listPerformerRefs(slug: string): Promise<{ slug: string; images: string[]; count: number }> {
+    try {
+      const resp = await fetch(`${this.baseUrl}/v1/generate/performer-refs/${slug}`);
+      return resp.json();
+    } catch {
+      return { slug, images: [], count: 0 };
+    }
+  }
+
+  getPerformerRefUrl(slug: string, filename: string): string {
+    return `${this.baseUrl}/v1/generate/performer-refs/${slug}/${encodeURIComponent(filename)}`;
+  }
+
+  // ─── WebSocket ────────────────────────────────────────────────────────
+
+  connectGenerationWs(clientId: string): WebSocket {
+    const wsUrl = this.baseUrl.replace("http://", "ws://").replace("https://", "wss://");
+    return new WebSocket(`${wsUrl}/v1/generate/ws?clientId=${clientId}`);
+  }
 }
 
 // ─── Types ─────────────────────────────────────────────────────────────
@@ -424,6 +492,15 @@ export interface DropsStatus {
   done: number;
   errors: number;
   entries: DropEntry[];
+}
+
+export interface TrainingJob {
+  job_id: string;
+  status: "preparing" | "training" | "completed" | "failed";
+  progress: number;
+  current_epoch: number;
+  total_epochs: number;
+  eta_seconds: number;
 }
 
 export interface DropDetail extends DropEntry {

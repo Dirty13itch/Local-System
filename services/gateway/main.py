@@ -11,6 +11,7 @@ from __future__ import annotations
 import os
 import time
 from contextlib import asynccontextmanager
+from pathlib import Path
 from typing import AsyncGenerator
 
 import httpx
@@ -69,10 +70,10 @@ SERVICE_URLS = {
 _dev_host = settings.network.dev
 COMFYUI_URL = os.environ.get("COMFYUI_URL", f"http://{_dev_host}:8188")
 
-# Performer data path
+# Performer data path — on VAULT NFS mount
 PERFORMERS_JSON = os.environ.get(
     "PERFORMERS_JSON",
-    os.path.expanduser("~/dev/archive/project-hub/data/performers.json"),
+    "/mnt/vault/data/performers.json",
 )
 
 # Cached performer data
@@ -908,3 +909,221 @@ async def preview_prompts(request: Request) -> dict:
     )
 
     return {"subject": subject, "count": len(prompts), "prompts": prompts}
+
+
+# ─── LoRA Training ─────────────────────────────────────────────────────────
+
+# In-memory training job tracker
+_training_jobs: dict[str, dict] = {}
+
+
+@app.post("/v1/generate/train")
+async def start_training(request: Request, body: TrainLoraRequest) -> TrainingJob:
+    """Start LoRA training — prepares dataset then trains.
+
+    This triggers the prepare_dataset.py + train-lora.sh scripts on the DEV node.
+    ComfyUI is stopped during training to free GPU memory.
+    """
+    _verify_api_key(request)
+
+    import asyncio
+    import uuid as _uuid
+
+    job_id = str(_uuid.uuid4())[:8]
+    job = {
+        "job_id": job_id,
+        "status": "preparing",
+        "progress": 0.0,
+        "current_epoch": 0,
+        "total_epochs": body.epochs,
+        "eta_seconds": 0,
+        "trigger_word": body.trigger_word,
+        "model_type": body.model_type,
+    }
+    _training_jobs[job_id] = job
+
+    async def _run_training():
+        import subprocess
+        try:
+            # Step 1: Prepare dataset
+            job["status"] = "preparing"
+            dataset_path = body.dataset_path or f"/data/training/{body.trigger_word}"
+            prep_cmd = [
+                "python3", os.path.expanduser("~/dev/prepare_dataset.py"),
+                dataset_path, body.trigger_word,
+                "--resolution", "1024" if body.model_type == "sdxl" else "512",
+            ]
+            proc = await asyncio.create_subprocess_exec(
+                *prep_cmd,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+            )
+            await proc.wait()
+            if proc.returncode != 0:
+                job["status"] = "failed"
+                return
+
+            # Step 2: Train LoRA
+            job["status"] = "training"
+            job["progress"] = 0.1
+            train_cmd = [
+                os.path.expanduser("~/dev/train-lora.sh"),
+                body.model_type, body.trigger_word, dataset_path,
+            ]
+            proc = await asyncio.create_subprocess_exec(
+                *train_cmd,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+            )
+            # Poll for progress (basic — check if process is still running)
+            while proc.returncode is None:
+                await asyncio.sleep(5)
+                try:
+                    proc.poll()  # type: ignore
+                except Exception:
+                    pass
+                # Increment progress estimate
+                if job["progress"] < 0.9:
+                    job["progress"] = min(0.9, job["progress"] + 0.02)
+
+            await proc.wait()
+            if proc.returncode == 0:
+                job["status"] = "completed"
+                job["progress"] = 1.0
+            else:
+                job["status"] = "failed"
+        except Exception as exc:
+            logger.error("Training failed: %s", exc)
+            job["status"] = "failed"
+
+    asyncio.create_task(_run_training())
+
+    return TrainingJob(**job)
+
+
+@app.get("/v1/generate/train/{job_id}")
+async def training_status(job_id: str) -> TrainingJob:
+    """Get training job status."""
+    job = _training_jobs.get(job_id)
+    if not job:
+        raise HTTPException(status_code=404, detail=f"Training job not found: {job_id}")
+    return TrainingJob(**job)
+
+
+@app.get("/v1/generate/train")
+async def list_training_jobs() -> list[TrainingJob]:
+    """List all training jobs."""
+    return [TrainingJob(**j) for j in _training_jobs.values()]
+
+
+# ─── Performer Reference Photos ───────────────────────────────────────────
+
+PERFORMER_REFS_DIR = os.environ.get(
+    "PERFORMER_REFS_DIR",
+    "/mnt/vault/data/performer-refs",
+)
+
+
+@app.post("/v1/generate/upload-ref")
+async def upload_performer_ref(request: Request) -> dict:
+    """Upload a reference photo for a performer.
+
+    Multipart form: performer_name (str) + file (image).
+    Saves to VAULT at /mnt/vault/data/performer-refs/<slug>/ref_XX.jpg
+    """
+    _verify_api_key(request)
+
+    from fastapi import UploadFile, Form, File
+    import re
+
+    form = await request.form()
+    performer_name = form.get("performer_name", "")
+    file = form.get("file")
+
+    if not performer_name or not file:
+        raise HTTPException(status_code=400, detail="performer_name and file are required")
+
+    # Slugify performer name
+    slug = re.sub(r"[^a-z0-9]+", "-", str(performer_name).lower()).strip("-")
+    ref_dir = Path(PERFORMER_REFS_DIR) / slug
+    ref_dir.mkdir(parents=True, exist_ok=True)
+
+    # Find next ref number
+    existing = list(ref_dir.glob("ref_*.jpg")) + list(ref_dir.glob("ref_*.png"))
+    next_num = len(existing) + 1
+    ext = Path(file.filename).suffix.lower() if hasattr(file, "filename") and file.filename else ".jpg"
+    if ext not in {".jpg", ".jpeg", ".png", ".webp"}:
+        ext = ".jpg"
+
+    out_path = ref_dir / f"ref_{next_num:02d}{ext}"
+    content = await file.read()
+    out_path.write_bytes(content)
+
+    return {
+        "performer": str(performer_name),
+        "slug": slug,
+        "filename": out_path.name,
+        "path": str(out_path),
+        "total_refs": next_num,
+    }
+
+
+@app.get("/v1/generate/performer-refs/{slug}")
+async def list_performer_refs(slug: str) -> dict:
+    """List reference photos for a performer."""
+    ref_dir = Path(PERFORMER_REFS_DIR) / slug
+    if not ref_dir.exists():
+        return {"slug": slug, "images": [], "count": 0}
+
+    images = sorted([
+        f.name for f in ref_dir.iterdir()
+        if f.suffix.lower() in {".jpg", ".jpeg", ".png", ".webp"}
+    ])
+    return {"slug": slug, "images": images, "count": len(images)}
+
+
+@app.get("/v1/generate/performer-refs/{slug}/{filename}")
+async def serve_performer_ref(slug: str, filename: str) -> StreamingResponse:
+    """Serve a performer reference photo."""
+    ref_path = Path(PERFORMER_REFS_DIR) / slug / filename
+    if not ref_path.exists():
+        raise HTTPException(status_code=404, detail="Reference image not found")
+
+    ext = ref_path.suffix.lower()
+    ct = {".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".png": "image/png", ".webp": "image/webp"}
+    return StreamingResponse(
+        open(ref_path, "rb"),
+        media_type=ct.get(ext, "application/octet-stream"),
+        headers={"Cache-Control": "public, max-age=86400"},
+    )
+
+
+# ─── WebSocket Progress Proxy ─────────────────────────────────────────────
+
+
+@app.websocket("/v1/generate/ws")
+async def generation_progress_ws(websocket: WebSocket, clientId: str = ""):
+    """Proxy ComfyUI WebSocket for generation progress events.
+
+    Connect with: ws://host:8700/v1/generate/ws?clientId=<your-id>
+    Forwards progress, executing, executed, execution_cached events.
+    """
+    await websocket.accept()
+
+    import websockets
+
+    comfyui_ws_url = COMFYUI_URL.replace("http://", "ws://").replace("https://", "wss://")
+    ws_url = f"{comfyui_ws_url}/ws?clientId={clientId}"
+
+    try:
+        async with websockets.connect(ws_url) as comfy_ws:
+            async for message in comfy_ws:
+                await websocket.send_text(message if isinstance(message, str) else message.decode())
+    except WebSocketDisconnect:
+        logger.debug("Generation WS client disconnected")
+    except Exception as e:
+        logger.warning("Generation WS proxy error: %s", e)
+        try:
+            await websocket.close(code=1011, reason=str(e))
+        except Exception:
+            pass

@@ -7,6 +7,7 @@ import {
   type QueenDNA,
   type DropEntry,
   type DropDetail,
+  type TrainingJob,
 } from "@/lib/api";
 import { ImageUpload } from "@/components/ImageUpload";
 import { ImageGallery } from "@/components/ImageGallery";
@@ -1132,9 +1133,31 @@ function TrainTab() {
   const [previews, setPreviews] = useState<string[]>([]);
   const [triggerWord, setTriggerWord] = useState("");
   const [modelType, setModelType] = useState<"sdxl" | "flux">("sdxl");
-  const [preparing, setPreparing] = useState(false);
-  const [training, setTraining] = useState(false);
-  const [status, setStatus] = useState<string>("");
+  const [activeJob, setActiveJob] = useState<TrainingJob | null>(null);
+  const [statusMsg, setStatusMsg] = useState("");
+  const [busy, setBusy] = useState(false);
+  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  // Poll active job
+  useEffect(() => {
+    if (!activeJob || activeJob.status === "completed" || activeJob.status === "failed") {
+      if (pollRef.current) clearInterval(pollRef.current);
+      return;
+    }
+    const poll = async () => {
+      try {
+        const job = await api.getTrainingStatus(activeJob.job_id);
+        setActiveJob(job);
+        if (job.status === "completed") {
+          setStatusMsg("Training complete! LoRA is now available in the Create and Queens tabs.");
+        } else if (job.status === "failed") {
+          setStatusMsg("Training failed. Check server logs for details.");
+        }
+      } catch { /* offline */ }
+    };
+    pollRef.current = setInterval(poll, 3000);
+    return () => { if (pollRef.current) clearInterval(pollRef.current); };
+  }, [activeJob?.job_id, activeJob?.status]);
 
   const handleUpload = useCallback(async (file: File) => {
     setFiles((prev) => [...prev, file]);
@@ -1147,6 +1170,33 @@ function TrainTab() {
     setFiles((prev) => prev.filter((_, i) => i !== idx));
     setPreviews((prev) => prev.filter((_, i) => i !== idx));
   };
+
+  const handleStartTraining = async () => {
+    if (!triggerWord.trim()) return;
+    setBusy(true);
+    setStatusMsg("Uploading photos and starting training pipeline...");
+    try {
+      // Upload all photos to ComfyUI input
+      for (const file of files) {
+        await api.uploadImage(file);
+      }
+      // Start training
+      const job = await api.startTraining({
+        trigger_word: triggerWord.trim(),
+        model_type: modelType,
+        epochs: 20,
+      });
+      setActiveJob(job);
+      setStatusMsg(`Training job ${job.job_id} started — ${job.status}`);
+    } catch (e) {
+      setStatusMsg(`Error: ${e instanceof Error ? e.message : String(e)}`);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const progressPercent = activeJob ? Math.round(activeJob.progress * 100) : 0;
+  const isTraining = activeJob?.status === "preparing" || activeJob?.status === "training";
 
   return (
     <div className="p-6 max-w-4xl mx-auto space-y-6">
@@ -1208,38 +1258,41 @@ function TrainTab() {
         </div>
         <div className="flex items-end">
           <button
-            disabled={files.length < 5 || !triggerWord.trim() || preparing || training}
+            disabled={files.length < 5 || !triggerWord.trim() || busy || isTraining}
             className="w-full px-4 py-2 rounded-lg bg-[var(--accent)] hover:bg-[var(--accent-hover)] text-white text-sm font-medium disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
-            onClick={() => {
-              setPreparing(true);
-              setStatus("Preparing dataset: cropping faces, generating captions...");
-              // In a real implementation, this would call the API
-              setTimeout(() => {
-                setPreparing(false);
-                setStatus("Dataset ready. Click Start Training to begin.");
-              }, 3000);
-            }}
+            onClick={handleStartTraining}
           >
-            {preparing ? "Preparing..." : "Prepare Dataset"}
+            {busy ? "Starting..." : isTraining ? "Training..." : "Start Training"}
           </button>
         </div>
       </div>
 
+      {/* Progress bar */}
+      {isTraining && (
+        <div className="space-y-2">
+          <div className="flex items-center justify-between text-xs text-[var(--text-secondary)]">
+            <span>{activeJob?.status === "preparing" ? "Preparing dataset..." : "Training LoRA..."}</span>
+            <span>{progressPercent}%</span>
+          </div>
+          <div className="w-full h-2 rounded-full bg-[var(--bg-tertiary)] overflow-hidden">
+            <div
+              className="h-full rounded-full bg-[var(--accent)] transition-all duration-500"
+              style={{ width: `${progressPercent}%` }}
+            />
+          </div>
+        </div>
+      )}
+
       {/* Status */}
-      {status && (
-        <div className="rounded-lg border border-[var(--border)] bg-[var(--bg-secondary)] p-4">
-          <p className="text-sm">{status}</p>
-          {!preparing && !training && status.includes("ready") && (
-            <button
-              onClick={() => {
-                setTraining(true);
-                setStatus("Training LoRA... This will take 15-25 minutes.");
-              }}
-              className="mt-3 px-4 py-2 rounded-lg bg-green-600 hover:bg-green-700 text-white text-sm font-medium transition-colors"
-            >
-              Start Training
-            </button>
-          )}
+      {statusMsg && (
+        <div className={`rounded-lg border p-4 text-sm ${
+          activeJob?.status === "completed"
+            ? "border-green-500/30 bg-green-500/10 text-green-400"
+            : activeJob?.status === "failed"
+            ? "border-red-500/30 bg-red-500/10 text-red-400"
+            : "border-[var(--border)] bg-[var(--bg-secondary)]"
+        }`}>
+          <p>{statusMsg}</p>
         </div>
       )}
 
@@ -1252,6 +1305,7 @@ function TrainTab() {
           <li>The trigger word is how you&apos;ll reference this person in prompts</li>
           <li>SDXL training takes ~15 min, FLUX takes ~25 min on RTX 5060 Ti</li>
           <li>After training, the LoRA appears in the Create tab and Queens tab</li>
+          <li>ComfyUI is stopped during training to free GPU VRAM</li>
         </ul>
       </div>
     </div>
