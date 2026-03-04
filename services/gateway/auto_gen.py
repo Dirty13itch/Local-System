@@ -437,7 +437,10 @@ class AutoGenerator:
         height: int = 1216,
         seed: int = -1,
     ) -> str | None:
-        """Submit a generation job to ComfyUI via the gateway pipeline."""
+        """Submit a generation job to ComfyUI via the gateway pipeline.
+
+        Tries face-identity pipeline first; falls back to text-only if ComfyUI rejects it.
+        """
         from .pipelines import flux_faceid, flux_uncensored
 
         if seed == -1:
@@ -445,36 +448,52 @@ class AutoGenerator:
 
         client_id = str(uuid.uuid4())
 
+        # Try face-identity pipeline first, then fall back to text-only
+        pipelines_to_try = []
         if ref_image:
-            workflow = flux_faceid(
+            pipelines_to_try.append(("flux-faceid", flux_faceid(
                 prompt=prompt,
                 reference_image=ref_image,
                 width=width,
                 height=height,
                 seed=seed,
-            )
-        else:
-            workflow = flux_uncensored(
-                prompt=prompt,
-                width=width,
-                height=height,
-                seed=seed,
-            )
+            )))
+        # Always have text-only as fallback
+        pipelines_to_try.append(("flux-uncensored", flux_uncensored(
+            prompt=prompt,
+            width=width,
+            height=height,
+            seed=seed,
+        )))
 
-        workflow["client_id"] = client_id
+        for pipeline_name, workflow in pipelines_to_try:
+            workflow["client_id"] = client_id
+            try:
+                async with httpx.AsyncClient(timeout=30.0) as client:
+                    resp = await client.post(
+                        f"{self.comfyui_url}/prompt",
+                        json=workflow,
+                    )
+                    resp.raise_for_status()
+                    data = resp.json()
+                    prompt_id = data.get("prompt_id", "")
+                    if prompt_id:
+                        logger.info("Submitted via %s pipeline: %s", pipeline_name, prompt_id)
+                        return prompt_id
+            except httpx.HTTPStatusError as e:
+                if e.response.status_code == 400 and pipeline_name != "flux-uncensored":
+                    logger.warning(
+                        "Pipeline %s rejected by ComfyUI (400), trying fallback...",
+                        pipeline_name,
+                    )
+                    continue
+                logger.error("Generation submit failed (%s): %s", pipeline_name, e)
+                return None
+            except Exception as e:
+                logger.error("Generation submit failed (%s): %s", pipeline_name, e)
+                return None
 
-        try:
-            async with httpx.AsyncClient(timeout=30.0) as client:
-                resp = await client.post(
-                    f"{self.comfyui_url}/prompt",
-                    json=workflow,
-                )
-                resp.raise_for_status()
-                data = resp.json()
-                return data.get("prompt_id", "")
-        except Exception as e:
-            logger.error("Generation submit failed: %s", e)
-            return None
+        return None
 
     async def _wait_for_result(
         self,
