@@ -156,6 +156,211 @@ class ApiClient {
     });
     return resp.json();
   }
+
+  // ─── Generation ──────────────────────────────────────────────────────
+
+  async generateImage(params: {
+    prompt: string;
+    negative_prompt?: string;
+    pipeline?: string;
+    width?: number;
+    height?: number;
+    steps?: number;
+    cfg?: number;
+    seed?: number;
+    lora_name?: string;
+    lora_strength?: number;
+  }): Promise<{ prompt_id: string; client_id: string }> {
+    const resp = await fetch(`${this.baseUrl}/v1/generate/image`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(params),
+    });
+    return resp.json();
+  }
+
+  async generateFace(params: {
+    prompt: string;
+    reference_image: string;
+    pipeline?: string;
+    identity_strength?: number;
+    width?: number;
+    height?: number;
+    seed?: number;
+  }): Promise<{ prompt_id: string; client_id: string }> {
+    const resp = await fetch(`${this.baseUrl}/v1/generate/face`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(params),
+    });
+    return resp.json();
+  }
+
+  async generateQueen(params: {
+    queen_id: string;
+    mode?: string;
+    scene_index?: number;
+    prompt_override?: string;
+    identity_strength?: number;
+    seed?: number;
+  }): Promise<{ prompt_id: string; client_id: string }> {
+    const resp = await fetch(`${this.baseUrl}/v1/generate/queen`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(params),
+    });
+    return resp.json();
+  }
+
+  getImageUrl(filename: string, type = "output"): string {
+    return `${this.baseUrl}/v1/generate/view?filename=${encodeURIComponent(filename)}&type=${type}`;
+  }
+
+  async generationStatus(): Promise<{
+    active_service: string;
+    queue_running: number;
+    queue_pending: number;
+  }> {
+    try {
+      const resp = await fetch(`${this.baseUrl}/v1/generate/status`);
+      return resp.json();
+    } catch {
+      return { active_service: "offline", queue_running: 0, queue_pending: 0 };
+    }
+  }
+
+  async generationHistory(): Promise<Record<string, unknown>> {
+    const resp = await fetch(`${this.baseUrl}/v1/generate/history`);
+    return resp.json();
+  }
+
+  async generationQueue(): Promise<Record<string, unknown>> {
+    const resp = await fetch(`${this.baseUrl}/v1/generate/queue`);
+    return resp.json();
+  }
+
+  async listPipelines(): Promise<
+    Array<{ id: string; name: string; type: string; est_time: string }>
+  > {
+    try {
+      const resp = await fetch(`${this.baseUrl}/v1/generate/pipelines`);
+      return resp.json();
+    } catch {
+      return [];
+    }
+  }
+
+  async listQueens(): Promise<QueenProfile[]> {
+    try {
+      const resp = await fetch(`${this.baseUrl}/v1/generate/queens`);
+      return resp.json();
+    } catch {
+      return [];
+    }
+  }
+
+  async getQueen(queenId: string): Promise<QueenProfile | null> {
+    try {
+      const resp = await fetch(`${this.baseUrl}/v1/generate/queens/${queenId}`);
+      if (!resp.ok) return null;
+      return resp.json();
+    } catch {
+      return null;
+    }
+  }
+
+  async searchPerformers(params: {
+    q?: string;
+    min_rating?: number;
+    favorites_only?: boolean;
+    limit?: number;
+  }): Promise<PerformerInfo[]> {
+    const qs = new URLSearchParams();
+    if (params.q) qs.set("q", params.q);
+    if (params.min_rating) qs.set("min_rating", String(params.min_rating));
+    if (params.favorites_only) qs.set("favorites_only", "true");
+    if (params.limit) qs.set("limit", String(params.limit));
+    try {
+      const resp = await fetch(`${this.baseUrl}/v1/generate/performers?${qs}`);
+      return resp.json();
+    } catch {
+      return [];
+    }
+  }
+
+  async uploadImage(file: File): Promise<{ name: string; subfolder: string; type: string }> {
+    const form = new FormData();
+    form.append("image", file);
+    const resp = await fetch(`${this.baseUrl}/v1/generate/upload`, {
+      method: "POST",
+      body: form,
+    });
+    return resp.json();
+  }
+
+  async listGenModels(): Promise<{ checkpoints: string[]; loras: string[] }> {
+    try {
+      const resp = await fetch(`${this.baseUrl}/v1/generate/models`);
+      return resp.json();
+    } catch {
+      return { checkpoints: [], loras: [] };
+    }
+  }
+}
+
+// ─── Types ─────────────────────────────────────────────────────────────
+
+export interface QueenDNA {
+  dominance: number;
+  submission: number;
+  exhibitionism: number;
+  voyeurism: number;
+  nurturing: number;
+  corruption: number;
+  possessiveness: number;
+  devotion: number;
+  playfulness: number;
+  intensity: number;
+  ritualism: number;
+  spontaneity: number;
+  emotional_openness: number;
+  guardedness: number;
+  sensory_focus: number;
+  intellectual_arousal: number;
+  power_exchange: number;
+  intimacy_threshold: number;
+  taboo_comfort: number;
+}
+
+export interface QueenScene {
+  title: string;
+  description: string;
+  flux_prompt: string;
+}
+
+export interface QueenProfile {
+  id: string;
+  name: string;
+  performer_ref: string;
+  physical_blueprint: Record<string, string>;
+  dna: QueenDNA;
+  flux_portrait_prompt: string;
+  scenes: QueenScene[];
+  lora_name: string | null;
+  reference_images: string[];
+}
+
+export interface PerformerInfo {
+  name: string;
+  rating: number;
+  gen_ready: number;
+  height: string | null;
+  bust: string | null;
+  implants: boolean | null;
+  body_type: string | null;
+  ethnicity: string | null;
+  nationality: string | null;
+  is_favorite: boolean;
 }
 
 export const api = new ApiClient(BASE_URL);

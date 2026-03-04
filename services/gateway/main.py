@@ -22,12 +22,28 @@ from local_system.config import get_settings
 from local_system.models import (
     ChatRequest,
     ChatResponse,
+    FaceSwapRequest,
+    GenerateFaceRequest,
+    GenerateImageRequest,
+    GenerateImageResponse,
+    GenerationStatus,
     HealthResponse,
     MemorySearchRequest,
+    Message,
+    PerformerInfo,
+    QueenGenerateRequest,
+    QueenProfile,
     SearchRequest,
     SearchResponse,
+    TokenUsage,
+    TrainLoraRequest,
+    TrainingJob,
 )
 from local_system.utils import setup_logging
+
+from .dna_engine import dna_to_prompt_modifiers
+from .pipelines import PIPELINE_PRESETS, flux_faceid, flux_uncensored, queen_portrait, queen_scene, face_swap as build_face_swap
+from .queens import get_queen, load_queens, reload_queens
 
 settings = get_settings()
 logger = setup_logging("gateway", settings)
@@ -47,6 +63,19 @@ SERVICE_URLS = {
     "rag": f"http://{_vault_host}:8704",
     "litellm": settings.inference.litellm_host,
 }
+
+# ComfyUI on DEV node
+_dev_host = settings.network.dev
+COMFYUI_URL = os.environ.get("COMFYUI_URL", f"http://{_dev_host}:8188")
+
+# Performer data path
+PERFORMERS_JSON = os.environ.get(
+    "PERFORMERS_JSON",
+    os.path.expanduser("~/dev/archive/project-hub/data/performers.json"),
+)
+
+# Cached performer data
+_performers_cache: list[dict] | None = None
 
 # API key for gateway auth — set via env
 _api_key = os.environ.get("API_SECRET_KEY", settings.api_secret_key)
@@ -152,7 +181,14 @@ async def chat(request: Request, body: ChatRequest) -> ChatResponse:
             timeout=300.0,
         )
         resp.raise_for_status()
-        return ChatResponse(**resp.json())
+        data = resp.json()
+        choice = data["choices"][0]
+        return ChatResponse(
+            id=data["id"],
+            model=data["model"],
+            message=Message(role=choice["message"]["role"], content=choice["message"]["content"]),
+            usage=TokenUsage(**data.get("usage", {})),
+        )
     except httpx.HTTPStatusError as e:
         raise HTTPException(status_code=e.response.status_code, detail=str(e)) from e
     except httpx.RequestError as e:
@@ -327,3 +363,376 @@ async def emergency_stop(request: Request) -> dict:
     logger.critical("EMERGENCY STOP triggered")
     # TODO: Broadcast stop to all services
     return {"status": "emergency_stop", "message": "All autonomous operations halted"}
+
+
+# ─── Generation (proxy to ComfyUI) ────────────────────────────────────────
+
+
+def _load_performers() -> list[dict]:
+    """Load performer database from JSON file (cached)."""
+    global _performers_cache
+    if _performers_cache is not None:
+        return _performers_cache
+    import json as _json
+    try:
+        with open(PERFORMERS_JSON, encoding="utf-8") as f:
+            _performers_cache = _json.load(f)
+        logger.info("Loaded %d performers from %s", len(_performers_cache), PERFORMERS_JSON)
+    except FileNotFoundError:
+        logger.warning("Performers JSON not found: %s", PERFORMERS_JSON)
+        _performers_cache = []
+    except Exception as e:
+        logger.error("Failed to load performers: %s", e)
+        _performers_cache = []
+    return _performers_cache
+
+
+@app.post("/v1/generate/image", response_model=GenerateImageResponse)
+async def generate_image(request: Request, body: GenerateImageRequest) -> GenerateImageResponse:
+    """Submit text-to-image generation to ComfyUI."""
+    _verify_api_key(request)
+    client = _client(request)
+
+    # Build workflow from preset
+    if body.pipeline in ("flux-uncensored", "flux"):
+        workflow_data = flux_uncensored(
+            prompt=body.prompt, negative_prompt=body.negative_prompt,
+            width=body.width, height=body.height, steps=body.steps,
+            cfg=body.cfg, seed=body.seed, lora_name=body.lora_name,
+            lora_strength=body.lora_strength, batch_size=body.batch_size,
+        )
+    elif body.pipeline == "realvis-xl":
+        from .pipelines import realvis_xl
+        workflow_data = realvis_xl(
+            prompt=body.prompt, negative_prompt=body.negative_prompt,
+            width=body.width, height=body.height, steps=body.steps,
+            cfg=body.cfg, seed=body.seed, batch_size=body.batch_size,
+        )
+    else:
+        raise HTTPException(status_code=400, detail=f"Unknown pipeline: {body.pipeline}")
+
+    try:
+        resp = await client.post(f"{COMFYUI_URL}/prompt", json=workflow_data, timeout=30.0)
+        resp.raise_for_status()
+        data = resp.json()
+        return GenerateImageResponse(
+            prompt_id=data.get("prompt_id", ""),
+            client_id=workflow_data.get("client_id", ""),
+        )
+    except httpx.RequestError as e:
+        raise HTTPException(status_code=502, detail=f"ComfyUI unavailable: {e}") from e
+
+
+@app.post("/v1/generate/face", response_model=GenerateImageResponse)
+async def generate_face(request: Request, body: GenerateFaceRequest) -> GenerateImageResponse:
+    """Identity-preserving generation using reference photo."""
+    _verify_api_key(request)
+    client = _client(request)
+
+    if body.pipeline == "flux-faceid":
+        workflow_data = flux_faceid(
+            prompt=body.prompt, reference_image=body.reference_image,
+            negative_prompt=body.negative_prompt, identity_strength=body.identity_strength,
+            width=body.width, height=body.height, steps=body.steps,
+            cfg=body.cfg, seed=body.seed,
+        )
+    elif body.pipeline == "sdxl-faceid":
+        from .pipelines import sdxl_faceid
+        workflow_data = sdxl_faceid(
+            prompt=body.prompt, reference_image=body.reference_image,
+            negative_prompt=body.negative_prompt, identity_strength=body.identity_strength,
+            width=body.width, height=body.height, steps=body.steps,
+            cfg=body.cfg, seed=body.seed,
+        )
+    else:
+        raise HTTPException(status_code=400, detail=f"Unknown face pipeline: {body.pipeline}")
+
+    try:
+        resp = await client.post(f"{COMFYUI_URL}/prompt", json=workflow_data, timeout=30.0)
+        resp.raise_for_status()
+        data = resp.json()
+        return GenerateImageResponse(
+            prompt_id=data.get("prompt_id", ""),
+            client_id=workflow_data.get("client_id", ""),
+        )
+    except httpx.RequestError as e:
+        raise HTTPException(status_code=502, detail=f"ComfyUI unavailable: {e}") from e
+
+
+@app.post("/v1/generate/swap", response_model=GenerateImageResponse)
+async def generate_swap(request: Request, body: FaceSwapRequest) -> GenerateImageResponse:
+    """Face swap via ReActor."""
+    _verify_api_key(request)
+    client = _client(request)
+
+    workflow_data = build_face_swap(
+        source_image=body.source_image,
+        face_image=body.face_image,
+        restore_face=body.restore_face,
+    )
+
+    try:
+        resp = await client.post(f"{COMFYUI_URL}/prompt", json=workflow_data, timeout=30.0)
+        resp.raise_for_status()
+        data = resp.json()
+        return GenerateImageResponse(
+            prompt_id=data.get("prompt_id", ""),
+            client_id=workflow_data.get("client_id", ""),
+        )
+    except httpx.RequestError as e:
+        raise HTTPException(status_code=502, detail=f"ComfyUI unavailable: {e}") from e
+
+
+@app.get("/v1/generate/view")
+async def view_image(request: Request, filename: str, type: str = "output", subfolder: str = "") -> StreamingResponse:
+    """Proxy ComfyUI image viewer."""
+    client = _client(request)
+    params = {"filename": filename, "type": type, "subfolder": subfolder}
+    try:
+        resp = await client.get(f"{COMFYUI_URL}/view", params=params, timeout=30.0)
+        return StreamingResponse(
+            content=resp.iter_bytes(),
+            media_type=resp.headers.get("content-type", "image/png"),
+        )
+    except httpx.RequestError as e:
+        raise HTTPException(status_code=502, detail=str(e)) from e
+
+
+@app.get("/v1/generate/history")
+async def generation_history(request: Request, max_items: int = 20) -> dict:
+    """Get recent generation history from ComfyUI."""
+    client = _client(request)
+    try:
+        resp = await client.get(f"{COMFYUI_URL}/history", params={"max_items": max_items}, timeout=10.0)
+        resp.raise_for_status()
+        return resp.json()
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=str(e)) from e
+
+
+@app.get("/v1/generate/queue")
+async def generation_queue(request: Request) -> dict:
+    """Get ComfyUI queue status."""
+    client = _client(request)
+    try:
+        resp = await client.get(f"{COMFYUI_URL}/queue", timeout=5.0)
+        resp.raise_for_status()
+        return resp.json()
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=str(e)) from e
+
+
+@app.get("/v1/generate/status")
+async def generation_status(request: Request) -> GenerationStatus:
+    """Generation service status including GPU info."""
+    client = _client(request)
+    try:
+        queue_resp = await client.get(f"{COMFYUI_URL}/queue", timeout=5.0)
+        queue_data = queue_resp.json()
+        running = len(queue_data.get("queue_running", []))
+        pending = len(queue_data.get("queue_pending", []))
+    except Exception:
+        running = pending = 0
+
+    return GenerationStatus(
+        active_service="comfyui",
+        queue_running=running,
+        queue_pending=pending,
+        gpu_vram_used_mb=0,
+        gpu_vram_total_mb=16384,
+    )
+
+
+@app.post("/v1/generate/upload")
+async def upload_image(request: Request) -> dict:
+    """Proxy image upload to ComfyUI."""
+    client = _client(request)
+    body = await request.body()
+    content_type = request.headers.get("content-type", "")
+
+    try:
+        resp = await client.post(
+            f"{COMFYUI_URL}/upload/image",
+            content=body,
+            headers={"Content-Type": content_type},
+            timeout=60.0,
+        )
+        resp.raise_for_status()
+        return resp.json()
+    except httpx.RequestError as e:
+        raise HTTPException(status_code=502, detail=str(e)) from e
+
+
+@app.get("/v1/generate/models")
+async def list_gen_models(request: Request) -> dict:
+    """List available generation models (checkpoints, LoRAs, etc.)."""
+    client = _client(request)
+    try:
+        resp = await client.get(f"{COMFYUI_URL}/object_info", timeout=10.0)
+        resp.raise_for_status()
+        data = resp.json()
+
+        # Extract model lists from CheckpointLoaderSimple and LoraLoader nodes
+        checkpoints = []
+        loras = []
+        if "CheckpointLoaderSimple" in data:
+            ckpt_input = data["CheckpointLoaderSimple"].get("input", {}).get("required", {})
+            if "ckpt_name" in ckpt_input:
+                checkpoints = ckpt_input["ckpt_name"][0] if ckpt_input["ckpt_name"] else []
+        if "LoraLoader" in data:
+            lora_input = data["LoraLoader"].get("input", {}).get("required", {})
+            if "lora_name" in lora_input:
+                loras = lora_input["lora_name"][0] if lora_input["lora_name"] else []
+
+        return {"checkpoints": checkpoints, "loras": loras}
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=str(e)) from e
+
+
+@app.get("/v1/generate/pipelines")
+async def list_pipelines() -> list[dict]:
+    """List available generation pipelines."""
+    return [
+        {"id": "flux-uncensored", "name": "FLUX Uncensored", "type": "text2img", "est_time": "45-60s"},
+        {"id": "realvis-xl", "name": "RealVisXL V5.0", "type": "text2img", "est_time": "25-35s"},
+        {"id": "flux-faceid", "name": "FLUX FaceID (PuLID)", "type": "face", "est_time": "60-90s"},
+        {"id": "sdxl-faceid", "name": "SDXL FaceID (IPAdapter)", "type": "face", "est_time": "35-50s"},
+        {"id": "face-swap", "name": "ReActor Face Swap", "type": "swap", "est_time": "10-15s"},
+        {"id": "queen-portrait", "name": "Queen Portrait (832x1216)", "type": "queen", "est_time": "60-90s"},
+        {"id": "queen-scene", "name": "Queen Scene (1344x768)", "type": "queen", "est_time": "60-90s"},
+    ]
+
+
+# ─── EoBQ Queens ──────────────────────────────────────────────────────────
+
+
+@app.get("/v1/generate/queens")
+async def list_queens() -> list[QueenProfile]:
+    """List all queen profiles from the Master Document."""
+    return load_queens()
+
+
+@app.get("/v1/generate/queens/{queen_id}")
+async def get_queen_detail(queen_id: str) -> QueenProfile:
+    """Get a specific queen's full profile."""
+    q = get_queen(queen_id)
+    if not q:
+        raise HTTPException(status_code=404, detail=f"Queen not found: {queen_id}")
+    return q
+
+
+@app.post("/v1/generate/queens/reload")
+async def reload_queen_data(request: Request) -> dict:
+    """Force reload queen profiles from Master Document."""
+    _verify_api_key(request)
+    queens = reload_queens()
+    return {"reloaded": len(queens)}
+
+
+@app.post("/v1/generate/queen", response_model=GenerateImageResponse)
+async def generate_queen(request: Request, body: QueenGenerateRequest) -> GenerateImageResponse:
+    """Generate queen portrait or scene with face identity."""
+    _verify_api_key(request)
+    client = _client(request)
+
+    q = get_queen(body.queen_id)
+    if not q:
+        raise HTTPException(status_code=404, detail=f"Queen not found: {body.queen_id}")
+
+    # Build prompt: queen's base prompt + optional scene + DNA modifiers
+    if body.prompt_override:
+        prompt = body.prompt_override
+    elif body.mode == "scene" and body.scene_index is not None and body.scene_index < len(q.scenes):
+        scene = q.scenes[body.scene_index]
+        prompt = scene.flux_prompt or f"{q.flux_portrait_prompt}, {scene.title}"
+    else:
+        prompt = q.flux_portrait_prompt or f"portrait of {q.name}, beautiful woman"
+
+    # Append DNA-derived mood modifiers
+    dna_dict = q.dna.model_dump()
+    dna_modifiers = dna_to_prompt_modifiers(dna_dict)
+    if dna_modifiers:
+        prompt = f"{prompt}, {dna_modifiers}"
+
+    # Choose reference image (first available)
+    ref_image = q.reference_images[0] if q.reference_images else None
+
+    # Build workflow
+    if body.mode == "scene":
+        workflow_data = queen_scene(
+            prompt=prompt, reference_image=ref_image, lora_name=q.lora_name,
+            identity_strength=body.identity_strength, seed=body.seed,
+        )
+    else:
+        workflow_data = queen_portrait(
+            prompt=prompt, reference_image=ref_image, lora_name=q.lora_name,
+            identity_strength=body.identity_strength, seed=body.seed,
+        )
+
+    try:
+        resp = await client.post(f"{COMFYUI_URL}/prompt", json=workflow_data, timeout=30.0)
+        resp.raise_for_status()
+        data = resp.json()
+        return GenerateImageResponse(
+            prompt_id=data.get("prompt_id", ""),
+            client_id=workflow_data.get("client_id", ""),
+        )
+    except httpx.RequestError as e:
+        raise HTTPException(status_code=502, detail=f"ComfyUI unavailable: {e}") from e
+
+
+@app.post("/v1/generate/dna-prompt")
+async def dna_prompt(traits: dict[str, int]) -> dict:
+    """Convert 19-trait DNA profile into prompt modifiers."""
+    return {"modifiers": dna_to_prompt_modifiers(traits)}
+
+
+# ─── Performers ───────────────────────────────────────────────────────────
+
+
+@app.get("/v1/generate/performers")
+async def search_performers(
+    q: str = "",
+    min_rating: float = 0.0,
+    favorites_only: bool = False,
+    limit: int = 50,
+) -> list[PerformerInfo]:
+    """Search the performer database."""
+    performers = _load_performers()
+    results = []
+
+    for p in performers:
+        rating = p.get("rating", 0)
+        if isinstance(rating, str):
+            try:
+                rating = float(rating)
+            except ValueError:
+                rating = 0.0
+
+        if rating < min_rating:
+            continue
+        if favorites_only and not p.get("isFavorite", False):
+            continue
+        if q:
+            name = (p.get("name") or "").lower()
+            aliases = (p.get("aliases") or "").lower()
+            if q.lower() not in name and q.lower() not in aliases:
+                continue
+
+        results.append(PerformerInfo(
+            name=p.get("name", ""),
+            rating=rating,
+            height=p.get("height"),
+            bust=p.get("braSize"),
+            implants=p.get("implants"),
+            body_type=p.get("bodyType"),
+            ethnicity=p.get("ethnicity"),
+            nationality=p.get("nationality"),
+            career_start=p.get("careerStart"),
+            career_end=p.get("careerEnd"),
+            is_favorite=p.get("isFavorite", False),
+        ))
+
+    # Sort by rating descending
+    results.sort(key=lambda x: x.rating, reverse=True)
+    return results[:limit]

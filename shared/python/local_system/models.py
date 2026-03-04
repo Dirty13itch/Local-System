@@ -358,3 +358,153 @@ class HealthResponse(BaseModel):
     version: str = "0.1.0"
     node: str
     uptime_seconds: float = 0
+
+
+# =============================================================================
+# Generation — ComfyUI Proxy + Face Identity
+# =============================================================================
+
+
+class GenerateImageRequest(BaseModel):
+    """Text-to-image generation via ComfyUI pipeline."""
+
+    prompt: str
+    negative_prompt: str = "blurry, low quality, deformed, ugly, bad anatomy"
+    pipeline: str = "flux-uncensored"
+    width: int = 1024
+    height: int = 1024
+    steps: int = 25
+    cfg: float = 3.5
+    seed: int = -1
+    lora_name: str | None = None
+    lora_strength: float = 1.0
+    batch_size: int = 1
+
+
+class GenerateFaceRequest(BaseModel):
+    """Identity-preserving generation using reference photo."""
+
+    prompt: str
+    negative_prompt: str = "blurry, low quality, deformed"
+    pipeline: str = "flux-faceid"
+    reference_image: str  # filename uploaded via /upload
+    identity_strength: float = 1.0
+    width: int = 1024
+    height: int = 1024
+    steps: int = 25
+    cfg: float = 3.5
+    seed: int = -1
+
+
+class FaceSwapRequest(BaseModel):
+    """Post-process face swap onto existing image."""
+
+    source_image: str
+    face_image: str
+    restore_face: bool = True
+
+
+class TrainLoraRequest(BaseModel):
+    """Start LoRA training from uploaded dataset."""
+
+    trigger_word: str
+    model_type: str = "sdxl"  # "sdxl" or "flux"
+    dataset_path: str | None = None
+    epochs: int = 20
+    network_dim: int = 64
+
+
+class GenerateImageResponse(BaseModel):
+    prompt_id: str
+    client_id: str
+
+
+class GenerationStatus(BaseModel):
+    active_service: str
+    queue_running: int
+    queue_pending: int
+    gpu_vram_used_mb: int
+    gpu_vram_total_mb: int
+
+
+class TrainingJob(BaseModel):
+    job_id: str
+    status: str  # "preparing" | "training" | "completed" | "failed"
+    progress: float = 0.0
+    current_epoch: int = 0
+    total_epochs: int = 0
+    eta_seconds: int = 0
+
+
+# =============================================================================
+# EoBQ — Empire of Broken Queens
+# =============================================================================
+
+
+class QueenDNA(BaseModel):
+    """19-Trait Sexual Personality DNA profile."""
+
+    dominance: int = 5
+    submission: int = 5
+    exhibitionism: int = 5
+    voyeurism: int = 5
+    nurturing: int = 5
+    corruption: int = 5
+    possessiveness: int = 5
+    devotion: int = 5
+    playfulness: int = 5
+    intensity: int = 5
+    ritualism: int = 5
+    spontaneity: int = 5
+    emotional_openness: int = 5
+    guardedness: int = 5
+    sensory_focus: int = 5
+    intellectual_arousal: int = 5
+    power_exchange: int = 5
+    intimacy_threshold: int = 5
+    taboo_comfort: int = 5
+
+
+class QueenScene(BaseModel):
+    title: str
+    description: str = ""
+    flux_prompt: str = ""
+
+
+class QueenProfile(BaseModel):
+    id: str
+    name: str
+    performer_ref: str = ""
+    physical_blueprint: dict[str, Any] = Field(default_factory=dict)
+    dna: QueenDNA = Field(default_factory=QueenDNA)
+    flux_portrait_prompt: str = ""
+    scenes: list[QueenScene] = Field(default_factory=list)
+    lora_name: str | None = None
+    reference_images: list[str] = Field(default_factory=list)
+
+
+class QueenGenerateRequest(BaseModel):
+    queen_id: str
+    mode: str = "portrait"  # "portrait" (832x1216) or "scene" (1344x768)
+    scene_index: int | None = None
+    prompt_override: str | None = None
+    identity_strength: float = 1.0
+    seed: int = -1
+
+
+class PerformerInfo(BaseModel):
+    """Performer from the master database."""
+
+    name: str
+    rating: float = 0.0  # 1-10 personal preference
+    gen_ready: int = 0  # 1-5 AI generation suitability
+    height: str | None = None
+    bust: str | None = None
+    implants: bool | None = None
+    body_type: str | None = None
+    ethnicity: str | None = None
+    nationality: str | None = None
+    career_start: str | None = None
+    career_end: str | None = None
+    is_favorite: bool = False
+    reference_count: int = 0
