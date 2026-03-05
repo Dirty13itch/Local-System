@@ -3,7 +3,7 @@
 #
 # Central nervous system:
 #   - Database hosting (PostgreSQL, Qdrant, Neo4j, Redis)
-#   - Service mesh (gateway, memory, orchestrator, RAG)
+#   - Service mesh (gateway, memory, orchestrator)
 #   - LiteLLM inference routing
 #   - Monitoring (Prometheus, Grafana)
 
@@ -169,24 +169,6 @@ services:
       - memory
       - litellm
     restart: unless-stopped
-
-  rag:
-    build:
-      context: ../..
-      dockerfile: services/rag/Dockerfile
-    container_name: rag
-    ports:
-      - "8704:8704"
-    env_file:
-      - ../../.env
-    environment:
-      NODE_NAME: vault
-      NODE_ROLE: orchestrator
-    depends_on:
-      - qdrant
-      - meilisearch
-    restart: unless-stopped
-
   # === MONITORING ===
 
   prometheus:
