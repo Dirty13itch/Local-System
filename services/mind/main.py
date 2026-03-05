@@ -22,6 +22,7 @@ import httpx
 from fastapi import FastAPI, HTTPException
 
 from local_system.config import get_settings
+
 from local_system.models import (
     AgentConfig,
     ChatRequest,
@@ -38,6 +39,7 @@ from .reasoning import ReasoningEngine
 from .router import CapabilityRouter
 from .tools import ToolRegistry
 from .workspace_manager import WorkspaceManager
+from .brief import DailyBrief
 
 settings = get_settings()
 logger = setup_logging("mind", settings)
@@ -49,6 +51,9 @@ _router = CapabilityRouter()
 _workspaces = WorkspaceManager()
 _tools: ToolRegistry | None = None
 _engine: ReasoningEngine | None = None
+
+
+_brief: DailyBrief | None = None
 
 
 @asynccontextmanager
@@ -86,6 +91,15 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         "workspaces": len(_workspaces.list_workspaces()),
     }
     logger.info(f"MIND service ready: {status}")
+
+    # Initialize daily brief
+    global _brief
+    _brief = DailyBrief(
+        gateway_url=f"http://localhost:{settings.ports.gateway}",
+        mind_url=f"http://localhost:{settings.ports.mind}",
+        memory_url=f"http://localhost:{settings.ports.memory}",
+    )
+    await _brief.init()
 
     yield
 
@@ -551,3 +565,32 @@ async def cluster_status() -> dict:
             "loaded": [ws["slug"] for ws in _workspaces.list_workspaces()],
         },
     }
+
+
+# ─── Self-Improvement Endpoints ──────────────────────────────────────
+
+
+
+@app.get("/v1/brief")
+async def daily_brief() -> dict:
+    """Generate a daily status brief."""
+    if not _brief:
+        return {"error": "Brief generator not initialized"}
+    return await _brief.generate()
+
+
+@app.post("/v1/consolidate")
+async def trigger_consolidation() -> dict:
+    """Trigger memory consolidation pipeline."""
+    try:
+        import httpx
+        settings = get_settings()
+        async with httpx.AsyncClient(timeout=60.0) as client:
+            resp = await client.post(
+                f"http://localhost:{settings.ports.memory}/v1/memory/consolidate"
+            )
+            if resp.status_code == 200:
+                return resp.json()
+            return {"status": "error", "detail": resp.text}
+    except Exception as e:
+        return {"status": "error", "detail": str(e)}
