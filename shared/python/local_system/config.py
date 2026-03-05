@@ -58,6 +58,7 @@ class ServicePorts(BaseSettings):
     gateway: int = Field(default=8700, alias="GATEWAY_PORT")
     memory: int = Field(default=8702, alias="MEMORY_PORT")
     orchestrator: int = Field(default=8703, alias="ORCHESTRATOR_PORT")
+    mind: int = Field(default=8710, alias="MIND_PORT")
     rag: int = Field(default=8704, alias="RAG_PORT")
     agent_server: int = Field(default=9000, alias="AGENT_SERVER_PORT")
     ui: int = Field(default=3001, alias="UI_PORT")
