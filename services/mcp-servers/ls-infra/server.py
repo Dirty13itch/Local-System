@@ -30,7 +30,7 @@ DEV_HOST = os.environ.get("DEV_HOST", "192.168.1.189")
 LITELLM_URL = os.environ.get("LITELLM_URL", f"http://{VAULT_HOST}:4000")
 LITELLM_KEY = os.environ.get("LITELLM_KEY", "sk-athanor-litellm-2026")
 
-MEMORY_PORT = int(os.environ.get("MEMORY_PORT", "8702"))
+MEMORY_PORT = int(os.environ.get("MEMORY_PORT", "8720"))
 GATEWAY_PORT = int(os.environ.get("GATEWAY_PORT", "8700"))
 ORCHESTRATOR_PORT = int(os.environ.get("ORCHESTRATOR_PORT", "8703"))
 
@@ -63,7 +63,7 @@ async def cluster_health() -> dict:
         "services": {
             "litellm (VAULT:4000)": f"{LITELLM_URL}/health",
             "gateway (DEV:8700)": f"http://{DEV_HOST}:{GATEWAY_PORT}/health",
-            "memory (VAULT:8702)": f"http://{VAULT_HOST}:{MEMORY_PORT}/health",
+            "memory (VAULT:8720)": f"http://{VAULT_HOST}:{MEMORY_PORT}/health",
             "orchestrator (VAULT:8703)": f"http://{VAULT_HOST}:{ORCHESTRATOR_PORT}/health",
         },
         "databases": {

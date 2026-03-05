@@ -10,6 +10,6 @@ RUN pip install --no-cache-dir /tmp/shared && rm -rf /tmp/shared
 
 COPY services/memory/ .
 
-EXPOSE 8702
+EXPOSE 8720
 
-CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8702"]
+CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8720"]

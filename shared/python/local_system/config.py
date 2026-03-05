@@ -56,7 +56,7 @@ class ServicePorts(BaseSettings):
     """Port assignments for Local-System services."""
 
     gateway: int = Field(default=8700, alias="GATEWAY_PORT")
-    memory: int = Field(default=8702, alias="MEMORY_PORT")
+    memory: int = Field(default=8720, alias="MEMORY_PORT")
     orchestrator: int = Field(default=8703, alias="ORCHESTRATOR_PORT")
     mind: int = Field(default=8710, alias="MIND_PORT")
     rag: int = Field(default=8704, alias="RAG_PORT")

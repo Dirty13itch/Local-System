@@ -22,7 +22,7 @@ from fastmcp import FastMCP
 # --- Configuration ---
 
 VAULT_HOST = os.environ.get("VAULT_HOST", "192.168.1.203")
-MEMORY_PORT = int(os.environ.get("MEMORY_PORT", "8702"))
+MEMORY_PORT = int(os.environ.get("MEMORY_PORT", "8720"))
 MEMORY_URL = f"http://{VAULT_HOST}:{MEMORY_PORT}"
 REQUEST_TIMEOUT = float(os.environ.get("KNOWLEDGE_TIMEOUT", "30"))
 

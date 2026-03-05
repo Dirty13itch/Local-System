@@ -48,7 +48,7 @@ Model aliases via LiteLLM: `reasoning`, `fast`, `embedding`, `coding`
 | Service | Port | Purpose |
 |---------|------|---------|
 | Gateway API | 8700 | REST/SSE/WebSocket entry point |
-| Memory Service | 8702 | 6-tier memory read/write/consolidation |
+| Memory Service | 8720 | 6-tier memory read/write/consolidation |
 | Orchestrator | 8703 | Agent lifecycle, task management |
 | RAG Service | 8704 | Hybrid search (Qdrant + Meilisearch) |
 | Agent Server | 9000 | LangGraph agents via LangChain |

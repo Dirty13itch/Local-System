@@ -34,7 +34,7 @@ scrape_configs:
 
   - job_name: 'memory'
     static_configs:
-      - targets: ['localhost:8702']
+      - targets: ['localhost:8720']
 
   - job_name: 'orchestrator'
     static_configs:

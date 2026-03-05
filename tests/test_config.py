@@ -30,7 +30,7 @@ def test_service_ports_defaults():
     """ServicePorts should have correct defaults."""
     ports = ServicePorts()
     assert ports.gateway == 8700
-    assert ports.memory == 8702
+    assert ports.memory == 8720
     assert ports.orchestrator == 8703
     assert ports.ui == 3001
 

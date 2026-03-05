@@ -140,7 +140,7 @@ services:
       dockerfile: services/memory/Dockerfile
     container_name: memory
     ports:
-      - "8702:8702"
+      - "8720:8720"
     env_file:
       - ../../.env
     environment:
