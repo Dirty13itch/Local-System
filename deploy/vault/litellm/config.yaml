@@ -1,94 +1,85 @@
-# ============================================================
-# LiteLLM Configuration — Local-System Inference Routing
-# ============================================================
-# Routes model requests to vLLM instances via model aliases.
-# IPs are injected via environment variables from .env
-# ============================================================
+# Local-System LiteLLM Proxy Configuration
+# Routes model requests to vLLM instances and cloud APIs via aliases
 #
-# Model aliases:
-#   reasoning — primary reasoning model (largest available)
-#   fast      — fast responses (smaller or sparse MoE model)
-#   embedding — embedding model for vector search
-#   coding    — coding specialist model
-#
-# Environment variables used:
-#   FOUNDRY_HOST  — IP of FOUNDRY node
-#   WORKSHOP_HOST — IP of WORKSHOP node
-# ============================================================
+# GPU Layout (FOUNDRY 192.168.1.244):
+#   GPU 0,1: reasoning TP=2 (Qwen3-32B-AWQ) :8000
+#   GPU 2:   coding (Qwen3-32B-AWQ, 4090)   :8002
+#   GPU 3:   embedding + reranker            :8001 / :8003
+# WORKSHOP (192.168.1.225):
+#   GPU 0:   fast (Qwen3-14B FP8, 5090)     :8000
 
 model_list:
-  # --- Reasoning: primary large model on FOUNDRY ---
+  # === LOCAL MODELS (zero cost, full privacy) ===
+
   - model_name: "reasoning"
     litellm_params:
-      model: "openai/reasoning"
-      api_base: "http://${FOUNDRY_HOST}:8000/v1"
-      api_key: "not-needed"
-    model_info:
-      max_tokens: 32768
-
-  # --- Fast: smaller/sparse model on WORKSHOP ---
-  - model_name: "fast"
-    litellm_params:
-      model: "openai/fast"
-      api_base: "http://${WORKSHOP_HOST}:8000/v1"
-      api_key: "not-needed"
-    model_info:
-      max_tokens: 32768
-
-  # --- Embedding: Qwen3-Embedding-0.6B on FOUNDRY ---
-  - model_name: "embedding"
-    litellm_params:
-      model: "openai/embedding"
-      api_base: "http://${FOUNDRY_HOST}:8001/v1"
+      model: "hosted_vllm//models/Qwen3-32B-AWQ"
+      api_base: "http://192.168.1.244:8000/v1"
       api_key: "not-needed"
 
-  # --- Coding: coding specialist (if deployed) ---
   - model_name: "coding"
     litellm_params:
-      model: "openai/coding"
-      api_base: "http://${FOUNDRY_HOST}:8002/v1"
+      model: "hosted_vllm//models/Qwen3-32B-AWQ"
+      api_base: "http://192.168.1.244:8002/v1"
+      api_key: "not-needed"
+
+  - model_name: "fast"
+    litellm_params:
+      model: "hosted_vllm/fast"
+      api_base: "http://192.168.1.225:8000/v1"
+      api_key: "not-needed"
+
+  - model_name: "embedding"
+    litellm_params:
+      model: "hosted_vllm//models/Qwen3-Embedding-0.6B"
+      api_base: "http://192.168.1.244:8001/v1"
       api_key: "not-needed"
     model_info:
-      max_tokens: 65536
+      mode: embedding
 
-
-  # --- Reranker: Qwen3-Reranker-0.6B on FOUNDRY ---
   - model_name: "reranker"
     litellm_params:
-      model: "openai/reranker"
-      api_base: "http://${FOUNDRY_HOST}:8003/v1"
+      model: "hosted_vllm//models/Qwen3-Reranker-0.6B"
+      api_base: "http://192.168.1.244:8003/v1"
       api_key: "not-needed"
 
-  # --- Local: Ollama fallback on DEV ---
   - model_name: "local"
     litellm_params:
       model: "ollama/dolphin-mistral:7b"
       api_base: "http://192.168.1.189:11434"
 
-  # --- OpenAI compatibility aliases ---
-  - model_name: "gpt-4"
-    litellm_params:
-      model: "openai/reasoning"
-      api_base: "http://${FOUNDRY_HOST}:8000/v1"
-      api_key: "not-needed"
+  # === CLOUD APIS (uncomment + set env vars when ready) ===
 
-  - model_name: "gpt-3.5-turbo"
-    litellm_params:
-      model: "openai/fast"
-      api_base: "http://${WORKSHOP_HOST}:8000/v1"
-      api_key: "not-needed"
+  # - model_name: "claude"
+  #   litellm_params:
+  #     model: "anthropic/claude-sonnet-4-20250514"
+  #     api_key: "os.environ/ANTHROPIC_API_KEY"
 
-  - model_name: "text-embedding-ada-002"
-    litellm_params:
-      model: "openai/embedding"
-      api_base: "http://${FOUNDRY_HOST}:8001/v1"
-      api_key: "not-needed"
+  # - model_name: "deepseek"
+  #   litellm_params:
+  #     model: "deepseek/deepseek-chat"
+  #     api_key: "os.environ/DEEPSEEK_API_KEY"
+
+  # - model_name: "gemini"
+  #   litellm_params:
+  #     model: "gemini/gemini-2.5-pro"
+  #     api_key: "os.environ/GEMINI_API_KEY"
 
 router_settings:
-  routing_strategy: "simple-shuffle"
+  routing_strategy: simple-shuffle
   num_retries: 2
-  timeout: 300
+  timeout: 120
+  model_group_alias:
+    "gpt-4": { model: "reasoning", hidden: false }
+    "gpt-3.5-turbo": { model: "fast", hidden: false }
+    "text-embedding-ada-002": { model: "embedding", hidden: false }
 
 litellm_settings:
   drop_params: true
   set_verbose: false
+
+general_settings:
+  master_key: "os.environ/LITELLM_MASTER_KEY"
+  database_url: "os.environ/DATABASE_URL"
+  background_health_checks: true
+  health_check_interval: 300
