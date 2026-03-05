@@ -306,15 +306,15 @@ def _chunk_text(text: str, chunk_size: int, overlap: int) -> list[str]:
 
 
 async def _get_embeddings(client: httpx.AsyncClient, texts: list[str]) -> list[list[float]]:
-    """Get embeddings from Ollama GPU (nomic-embed-text)."""
+    """Get embeddings from vLLM (Qwen3-Embedding-0.6B) via OpenAI-compatible API."""
     try:
         resp = await client.post(
-            f"{_embedding_url()}/api/embed",
+            f"{_embedding_url()}/v1/embeddings",
             json={"model": settings.rag.embedding_model, "input": texts},
         )
         resp.raise_for_status()
         data = resp.json()
-        return data.get("embeddings", [])
+        return [item["embedding"] for item in data.get("data", [])]
     except Exception as e:
         logger.error(f"Embedding generation failed: {e}")
         return []

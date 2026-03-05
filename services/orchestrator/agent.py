@@ -1,7 +1,7 @@
 """Agent execution engine — runs tool-augmented LLM workflows.
 
-Routes all inference through LiteLLM, which handles model→backend
-mapping (llama-70b→TabbyAPI, qwen2.5-7b→Ollama GPU, fallback→Ollama CPU).
+Routes all inference through LiteLLM on VAULT:4000, which handles
+model alias routing (reasoning/coding/fast) to vLLM on FOUNDRY/WORKSHOP.
 Injects memory context from the memory service into agent prompts.
 """
 
@@ -26,7 +26,7 @@ DEFAULT_AGENTS: list[AgentConfig] = [
     AgentConfig(
         name="general",
         system_prompt="You are a helpful AI assistant with access to tools. Use them to help the user.",
-        model="llama-70b",
+        model="reasoning",
         tools=["search", "calculator", "web_fetch"],
         max_iterations=10,
     ),
@@ -36,7 +36,7 @@ DEFAULT_AGENTS: list[AgentConfig] = [
             "You are an expert programmer. Help the user write, debug, and explain code. "
             "You have access to file operations and a shell."
         ),
-        model="llama-70b",
+        model="reasoning",
         tools=["search", "file_read", "file_write", "shell"],
         max_iterations=15,
     ),
@@ -46,7 +46,7 @@ DEFAULT_AGENTS: list[AgentConfig] = [
             "You are a research assistant. Search documents and the web to answer "
             "questions thoroughly. Cite sources when possible."
         ),
-        model="llama-70b",
+        model="reasoning",
         tools=["search", "web_fetch", "rag_search"],
         max_iterations=20,
     ),
@@ -56,7 +56,7 @@ DEFAULT_AGENTS: list[AgentConfig] = [
             "You are a creative writing assistant specializing in worldbuilding, "
             "narrative, and character development for the Empire of Broken Queens universe."
         ),
-        model="llama-70b",
+        model="reasoning",
         tools=["search", "rag_search", "file_read", "file_write"],
         max_iterations=15,
     ),
@@ -66,14 +66,14 @@ DEFAULT_AGENTS: list[AgentConfig] = [
             "You are a building science and HERS rating specialist. Help with energy "
             "modeling, code compliance, and building performance analysis."
         ),
-        model="llama-70b",
+        model="reasoning",
         tools=["search", "rag_search", "calculator"],
         max_iterations=15,
     ),
     AgentConfig(
         name="fast",
         system_prompt="You are a fast, concise assistant for quick tasks.",
-        model="qwen2.5-7b",
+        model="fast",
         tools=["search", "calculator"],
         max_iterations=5,
     ),
@@ -83,9 +83,8 @@ DEFAULT_AGENTS: list[AgentConfig] = [
 class AgentRunner:
     """Executes agent tasks with tool-use loops.
 
-    All inference routes through LiteLLM (single gateway), which handles
-    backend selection: llama-70b → TabbyAPI/ExLlamaV2, qwen2.5-7b → Ollama GPU,
-    fallback → Ollama CPU.
+    All inference routes through LiteLLM on VAULT:4000, which handles
+    model alias routing to vLLM backends on FOUNDRY and WORKSHOP.
     """
 
     def __init__(self, settings: Settings, tool_registry: ToolRegistry) -> None:
