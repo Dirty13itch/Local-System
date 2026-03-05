@@ -208,7 +208,7 @@ async def search_memory(req: MemorySearchRequest) -> MemorySearchResponse:
                 timeout=30.0,
             )
             embed_resp.raise_for_status()
-            query_vector = embed_resp.json()["embeddings"][0]
+            query_vector = embed_resp.json()["data"][0]["embedding"]
         except Exception as e:
             raise HTTPException(status_code=502, detail=f"Embedding failed: {e}") from e
 

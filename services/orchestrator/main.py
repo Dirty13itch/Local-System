@@ -142,7 +142,7 @@ async def _run_task(task: Task, config: dict) -> None:
         result = await app.state.agent_runner.run(
             description=task.description,
             agent_id=config.get("agent_id"),
-            model=config.get("model", "llama-70b"),
+            model=config.get("model", "reasoning"),
             tools=config.get("tools", []),
             max_iterations=config.get("max_iterations", 10),
             memory_context=memory_context,
