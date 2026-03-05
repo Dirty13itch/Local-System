@@ -1,0 +1,12 @@
+[project]
+name = "ls-tools"
+version = "0.1.0"
+description = "Local-System tools MCP server — tool discovery and cluster utilities"
+requires-python = ">=3.12"
+dependencies = [
+    "fastmcp>=2.0",
+    "httpx>=0.27",
+]
+
+[project.scripts]
+ls-tools = "ls_tools.server:main"

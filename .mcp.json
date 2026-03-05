@@ -34,6 +34,20 @@
         "shaun@192.168.1.189",
         "cd ~/dev/local-system-v4/services/mcp-servers/ls-infra && ~/.local/bin/uv run server.py"
       ]
+    },
+    "ls-creative": {
+      "command": "ssh",
+      "args": [
+        "shaun@192.168.1.189",
+        "cd ~/dev/local-system-v4/services/mcp-servers/ls-creative && ~/.local/bin/uv run server.py"
+      ]
+    },
+    "ls-tools": {
+      "command": "ssh",
+      "args": [
+        "shaun@192.168.1.189",
+        "cd ~/dev/local-system-v4/services/mcp-servers/ls-tools && ~/.local/bin/uv run server.py"
+      ]
     }
   }
 }
