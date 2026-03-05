@@ -1,0 +1,55 @@
+# DEV node (192.168.1.189) — Application services
+# Build from project root: docker compose -f deploy/dev/docker-compose.yml up -d
+#
+# These services run on DEV alongside the databases on VAULT.
+# All inference goes through LiteLLM on VAULT:4000.
+
+services:
+  gateway:
+    build:
+      context: ../../
+      dockerfile: services/gateway/Dockerfile
+    container_name: ls-gateway
+    ports:
+      - "8700:8700"
+    env_file: ../../.env
+    environment:
+      - NODE_NAME=dev
+      - NODE_ROLE=gateway
+    restart: unless-stopped
+    networks:
+      - local-system
+
+  memory:
+    build:
+      context: ../../
+      dockerfile: services/memory/Dockerfile
+    container_name: ls-memory
+    ports:
+      - "8702:8702"
+    env_file: ../../.env
+    environment:
+      - NODE_NAME=dev
+      - NODE_ROLE=memory
+    restart: unless-stopped
+    networks:
+      - local-system
+
+  orchestrator:
+    build:
+      context: ../../
+      dockerfile: services/orchestrator/Dockerfile
+    container_name: ls-orchestrator
+    ports:
+      - "8703:8703"
+    env_file: ../../.env
+    environment:
+      - NODE_NAME=dev
+      - NODE_ROLE=orchestrator
+    restart: unless-stopped
+    networks:
+      - local-system
+
+networks:
+  local-system:
+    driver: bridge

@@ -98,7 +98,7 @@ class ToolRegistry:
     async def _rag_search(
         self, query: str, collection: str = "default", top_k: int = 5
     ) -> list[dict]:
-        rag_url = f"http://{self.settings.network.vault}:8704"
+        rag_url = f"http://{self.settings.network.vault}:{self.settings.ports.memory}"
         async with httpx.AsyncClient(timeout=30.0) as client:
             resp = await client.post(
                 f"{rag_url}/v1/search",

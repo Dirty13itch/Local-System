@@ -39,7 +39,6 @@ async def cluster_health(request: Request) -> dict:
         "litellm": settings.inference.litellm_host,
         "memory": f"http://{_vault}:{settings.ports.memory}",
         "orchestrator": f"http://{_vault}:{settings.ports.orchestrator}",
-        "rag": f"http://{_vault}:8704",
     }
 
     for name, url in services.items():

@@ -7,3 +7,4 @@ redis>=5.0
 qdrant-client>=1.7
 neo4j>=5.0
 prometheus-client>=0.21
+meilisearch>=0.31

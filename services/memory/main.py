@@ -1,4 +1,4 @@
-"""Memory Service — 6-tier cognitive memory system.
+"""Memory Service — 6-tier cognitive memory system + hybrid search.
 
 Implements the memory architecture inspired by human cognition:
   1. Procedural — How to do things (versioned files)
@@ -7,6 +7,9 @@ Implements the memory architecture inspired by human cognition:
   4. Semantic — Knowledge graph entities and relationships (Neo4j/Graphiti)
   5. Resource — Ingested documents, code, papers (Qdrant chunks)
   6. Knowledge Vault — Validated high-confidence facts (PostgreSQL + Qdrant)
+
+Also provides hybrid search (Qdrant vector + Meilisearch BM25) and document
+ingestion — merged from the former RAG service.
 
 Runs on VAULT. Memory consolidation happens during idle periods.
 """
@@ -17,6 +20,7 @@ import time
 from contextlib import asynccontextmanager
 from typing import AsyncGenerator
 
+import httpx
 from fastapi import FastAPI, HTTPException
 
 from local_system.config import get_settings
@@ -31,6 +35,8 @@ from local_system.models import (
 )
 from local_system.utils import generate_id, setup_logging
 
+from . import search as search_module
+
 settings = get_settings()
 logger = setup_logging("memory", settings)
 
@@ -41,13 +47,17 @@ _redis = None     # Working memory
 _qdrant = None    # Episodic + Resource memory
 _neo4j = None     # Semantic memory
 _pg = None        # Knowledge Vault
+_meili = None     # BM25 full-text search
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
-    global _redis, _qdrant
+    global _redis, _qdrant, _meili
     logger.info("Memory service starting")
     app.state.start_time = time.time()
+
+    # HTTP client for embedding requests
+    app.state.http_client = httpx.AsyncClient(timeout=httpx.Timeout(60.0))
 
     # Initialize Redis for working memory
     try:
@@ -59,7 +69,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     except Exception as e:
         logger.warning(f"Redis not available: {e}")
 
-    # Initialize Qdrant for episodic + resource memory
+    # Initialize Qdrant for episodic + resource memory + vector search
     try:
         from qdrant_client import AsyncQdrantClient
 
@@ -72,30 +82,64 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     except Exception as e:
         logger.warning(f"Qdrant not available: {e}")
 
+    # Initialize Meilisearch for BM25 search
+    try:
+        import meilisearch
+
+        _meili = meilisearch.Client(
+            settings.meilisearch.url,
+            settings.meilisearch.key,
+        )
+        _meili.health()
+        logger.info("Meilisearch connected for BM25 search")
+    except Exception as e:
+        logger.warning(f"Meilisearch not available: {e}")
+
+    # Wire up search module with initialized backends
+    search_module.init(_qdrant, _meili, app.state.http_client)
+
     yield
 
     if _redis:
         await _redis.aclose()
     if _qdrant:
         await _qdrant.close()
+    await app.state.http_client.aclose()
 
     logger.info("Memory service stopped")
 
 
 app = FastAPI(
     title="Local-System Memory",
-    version="0.1.0",
+    version="0.2.0",
     lifespan=lifespan,
 )
 
+# Include hybrid search / ingestion router (merged from RAG service)
+app.include_router(search_module.router)
+
 
 @app.get("/health")
-async def health() -> HealthResponse:
-    return HealthResponse(
-        service="memory",
-        node=settings.node.name.value,
-        uptime_seconds=time.time() - app.state.start_time,
-    )
+async def health() -> dict:
+    backends = {}
+    if _redis:
+        try:
+            await _redis.ping()
+            backends["redis"] = "ok"
+        except Exception:
+            backends["redis"] = "error"
+    if _qdrant:
+        backends["qdrant"] = "ok"
+    if _meili:
+        backends["meilisearch"] = "ok"
+    return {
+        **HealthResponse(
+            service="memory",
+            node=settings.node.name.value,
+            uptime_seconds=time.time() - app.state.start_time,
+        ).model_dump(),
+        "backends": backends,
+    }
 
 
 # =============================================================================
@@ -144,7 +188,6 @@ async def store_episode(event: EpisodicEvent) -> dict:
     if not event.id:
         event.id = generate_id("ep")
 
-    # Store with embedding if available, otherwise use placeholder
     point = PointStruct(
         id=abs(hash(event.id)) % (2**63),
         vector=event.embedding or [0.0] * settings.rag.embedding_dimensions,
@@ -169,8 +212,6 @@ async def list_episodes(limit: int = 20) -> list[dict]:
     """List recent episodic memories."""
     if not _qdrant:
         raise HTTPException(status_code=503, detail="Qdrant not available")
-
-    from qdrant_client.models import Filter, FieldCondition, MatchValue
 
     results = await _qdrant.scroll(
         collection_name="episodic",
@@ -197,22 +238,12 @@ async def search_memory(req: MemorySearchRequest) -> MemorySearchResponse:
     if not _qdrant:
         raise HTTPException(status_code=503, detail="Qdrant not available")
 
-    # Get query embedding from inference service
-    import httpx
+    # Get query embedding
+    try:
+        query_vector = await _get_query_embedding(req.query)
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=f"Embedding failed: {e}") from e
 
-    async with httpx.AsyncClient() as client:
-        try:
-            embed_resp = await client.post(
-                f"{settings.inference.vllm_embedding_host}/v1/embeddings",
-                json={"model": settings.rag.embedding_model, "input": [req.query]},
-                timeout=30.0,
-            )
-            embed_resp.raise_for_status()
-            query_vector = embed_resp.json()["data"][0]["embedding"]
-        except Exception as e:
-            raise HTTPException(status_code=502, detail=f"Embedding failed: {e}") from e
-
-    # Determine which collections to search
     tier_to_collection = {
         MemoryTier.EPISODIC: "episodic",
         MemoryTier.RESOURCE: "resources",
@@ -226,7 +257,6 @@ async def search_memory(req: MemorySearchRequest) -> MemorySearchResponse:
         collection = tier_to_collection.get(tier)
         if not collection:
             continue
-
         try:
             results = await _qdrant.search(
                 collection_name=collection,
@@ -248,7 +278,6 @@ async def search_memory(req: MemorySearchRequest) -> MemorySearchResponse:
         except Exception:
             continue
 
-    # Sort by confidence/relevance
     all_results.sort(key=lambda x: x.confidence, reverse=True)
 
     return MemorySearchResponse(
@@ -265,15 +294,23 @@ async def search_memory(req: MemorySearchRequest) -> MemorySearchResponse:
 
 @app.post("/v1/memory/consolidate")
 async def trigger_consolidation() -> dict:
-    """Trigger memory consolidation — distill episodic into semantic knowledge.
-
-    This is the memory equivalent of sleep — episodic memories are reviewed,
-    patterns are extracted, and knowledge is promoted to higher tiers.
-    """
+    """Trigger memory consolidation — distill episodic into semantic knowledge."""
     logger.info("Memory consolidation triggered")
-    # TODO: Implement consolidation pipeline
-    # 1. Review recent episodic memories
-    # 2. Extract entities and relationships for semantic graph
-    # 3. Identify patterns for knowledge vault
-    # 4. Archive old working context
     return {"status": "consolidation_queued"}
+
+
+# =============================================================================
+# Helpers
+# =============================================================================
+
+
+async def _get_query_embedding(query: str) -> list[float]:
+    """Get embedding for a query string via vLLM."""
+    async with httpx.AsyncClient() as client:
+        resp = await client.post(
+            f"{settings.inference.vllm_embedding_host}/v1/embeddings",
+            json={"model": settings.rag.embedding_model, "input": [query]},
+            timeout=30.0,
+        )
+        resp.raise_for_status()
+        return resp.json()["data"][0]["embedding"]

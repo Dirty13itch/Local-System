@@ -54,7 +54,7 @@ async def search(request: Request, body: SearchRequest) -> SearchResponse:
     client = _client(request)
     try:
         resp = await client.post(
-            f"http://{_vault}:8704/v1/search",
+            f"http://{_vault}:{settings.ports.memory}/v1/search",
             json=body.model_dump(),
         )
         resp.raise_for_status()
