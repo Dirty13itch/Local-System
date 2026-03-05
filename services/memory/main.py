@@ -16,6 +16,7 @@ Runs on DEV. Memory consolidation happens during idle periods.
 
 from __future__ import annotations
 
+import asyncio
 import time
 from contextlib import asynccontextmanager
 from typing import AsyncGenerator
@@ -57,6 +58,7 @@ _procedural = ProceduralTier()
 _resource = ResourceTier()
 _vault = VaultTier()
 _consolidation: ConsolidationPipeline | None = None
+_consolidation_task: asyncio.Task | None = None
 
 # Legacy references for search module compatibility
 _qdrant = None
@@ -74,6 +76,20 @@ async def _get_embedding(text: str) -> list[float]:
         resp.raise_for_status()
         return resp.json()["data"][0]["embedding"]
 
+
+
+
+async def _periodic_consolidation():
+    """Run memory consolidation every 6 hours."""
+    while True:
+        await asyncio.sleep(6 * 3600)
+        if _consolidation:
+            try:
+                logger.info("Starting periodic memory consolidation")
+                stats = await _consolidation.run_full()
+                logger.info(f"Periodic consolidation complete: {stats}")
+            except Exception as e:
+                logger.error(f"Periodic consolidation failed: {e}")
 
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
@@ -147,9 +163,15 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     ready_count = sum(1 for v in tier_status.values() if v)
     logger.info(f"Memory service ready — {ready_count}/6 tiers initialized: {tier_status}")
 
+    # Start periodic consolidation (every 6 hours)
+    global _consolidation_task
+    _consolidation_task = asyncio.create_task(_periodic_consolidation())
+
     yield
 
     # --- Shutdown ---
+    if _consolidation_task:
+        _consolidation_task.cancel()
     await _working.close()
     await _semantic.close()
     await _procedural.close()
@@ -486,3 +508,16 @@ async def memory_stats() -> dict:
             "health": await tier.health(),
         }
     return stats
+
+
+# =============================================================================
+# Metrics
+# =============================================================================
+
+
+@app.get("/metrics")
+async def prometheus_metrics():
+    """Prometheus metrics endpoint."""
+    from local_system.metrics import metrics_response, SERVICE_INFO
+    SERVICE_INFO.labels(service="memory", version="0.3.0", node=settings.node.name.value).set(1)
+    return metrics_response()

@@ -1080,3 +1080,16 @@ async def generation_progress_ws(websocket: WebSocket, clientId: str = ""):
             await websocket.close(code=1011, reason=str(e))
         except Exception:
             pass
+
+
+# =============================================================================
+# Metrics
+# =============================================================================
+
+
+@app.get("/metrics")
+async def prometheus_metrics():
+    """Prometheus metrics endpoint."""
+    from local_system.metrics import metrics_response, SERVICE_INFO
+    SERVICE_INFO.labels(service="gateway", version="0.1.0", node=settings.node.name.value).set(1)
+    return metrics_response()

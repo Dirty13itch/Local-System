@@ -465,3 +465,89 @@ async def _run_task(task_id: str, config: dict) -> None:
                 "task.failed", "task_failed",
                 {"task_id": task_id, "error": str(e)},
             )
+
+
+# =============================================================================
+# Metrics
+# =============================================================================
+
+
+@app.get("/metrics")
+async def prometheus_metrics():
+    """Prometheus metrics endpoint."""
+    from local_system.metrics import metrics_response, SERVICE_INFO
+    SERVICE_INFO.labels(service="mind", version="0.2.0", node=settings.node.name.value).set(1)
+    return metrics_response()
+
+
+
+# =============================================================================
+# Cluster Status / Daily Brief
+# =============================================================================
+
+
+@app.get("/v1/mind/cluster-status")
+async def cluster_status() -> dict:
+    """Aggregate health status from all cluster services and nodes.
+
+    Returns a comprehensive view of the entire system for
+    operational awareness and daily briefings.
+    """
+    import asyncio
+
+    http = app.state.http_client
+    results = {}
+
+    async def _check(name: str, url: str):
+        try:
+            resp = await http.get(url, timeout=5.0)
+            results[name] = {"status": "up", "data": resp.json()}
+        except Exception as e:
+            results[name] = {"status": "down", "error": str(e)}
+
+    # Extract hosts (avoid nested quotes in f-strings)
+    litellm_h = settings.inference.litellm_host.rstrip("/")
+    reasoning_h = settings.inference.vllm_reasoning_host.rstrip("/")
+    coding_h = settings.inference.vllm_coding_host.rstrip("/")
+    fast_h = settings.inference.vllm_fast_host.rstrip("/")
+    embedding_h = settings.inference.vllm_embedding_host.rstrip("/")
+
+    # Check all services and inference endpoints in parallel
+    checks = [
+        _check("gateway", "http://localhost:8700/health"),
+        _check("memory", "http://localhost:8720/health"),
+        _check("mind", "http://localhost:8710/health"),
+        _check("litellm", f"{litellm_h}/health"),
+        _check("vllm_reasoning", f"{reasoning_h}/v1/models"),
+        _check("vllm_coding", f"{coding_h}/v1/models"),
+        _check("vllm_fast", f"{fast_h}/v1/models"),
+        _check("vllm_embedding", f"{embedding_h}/v1/models"),
+    ]
+    await asyncio.gather(*checks, return_exceptions=True)
+
+    # DB stats
+    db_stats = await _db.stats() if _db.ready else {"ready": False}
+
+    # Memory consolidation status
+    memory_consolidation = "n/a"
+    try:
+        resp = await http.get("http://localhost:8720/v1/memory/stats", timeout=5.0)
+        if resp.status_code == 200:
+            memory_consolidation = resp.json()
+    except Exception:
+        pass
+
+    up_count = sum(1 for v in results.values() if v["status"] == "up")
+    total = len(results)
+
+    return {
+        "timestamp": __import__("datetime").datetime.now(__import__("datetime").timezone.utc).isoformat(),
+        "summary": f"{up_count}/{total} services healthy",
+        "services": results,
+        "db": db_stats,
+        "memory": memory_consolidation,
+        "workspaces": {
+            "total": len(_workspaces.list_workspaces()),
+            "loaded": [ws["slug"] for ws in _workspaces.list_workspaces()],
+        },
+    }
