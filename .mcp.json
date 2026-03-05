@@ -1,0 +1,39 @@
+{
+  "mcpServers": {
+    "ls-inference": {
+      "command": "ssh",
+      "args": [
+        "shaun@192.168.1.189",
+        "cd ~/dev/local-system-v4/services/mcp-servers/ls-inference && ~/.local/bin/uv run server.py"
+      ]
+    },
+    "ls-memory": {
+      "command": "ssh",
+      "args": [
+        "shaun@192.168.1.189",
+        "cd ~/dev/local-system-v4/services/mcp-servers/ls-memory && ~/.local/bin/uv run server.py"
+      ]
+    },
+    "ls-knowledge": {
+      "command": "ssh",
+      "args": [
+        "shaun@192.168.1.189",
+        "cd ~/dev/local-system-v4/services/mcp-servers/ls-knowledge && ~/.local/bin/uv run server.py"
+      ]
+    },
+    "ls-workspace": {
+      "command": "ssh",
+      "args": [
+        "shaun@192.168.1.189",
+        "cd ~/dev/local-system-v4/services/mcp-servers/ls-workspace && ~/.local/bin/uv run server.py"
+      ]
+    },
+    "ls-infra": {
+      "command": "ssh",
+      "args": [
+        "shaun@192.168.1.189",
+        "cd ~/dev/local-system-v4/services/mcp-servers/ls-infra && ~/.local/bin/uv run server.py"
+      ]
+    }
+  }
+}

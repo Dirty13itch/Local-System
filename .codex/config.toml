@@ -1,0 +1,9 @@
+# Codex CLI — routes inference through LiteLLM on VAULT
+# Uses local models (free) via the "coding" alias by default
+
+model = "coding"
+model_provider = "litellm"
+
+[model_providers.litellm]
+base_url = "http://192.168.1.203:4000/v1"
+api_key = "sk-athanor-litellm-2026"

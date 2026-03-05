@@ -93,6 +93,12 @@ MODEL_ROUTES: dict[str, dict[str, Any]] = {
         "type": "litellm",
         "description": "Gemini 2.5 Pro API (1M context)",
     },
+    "gpt": {
+        "base_url": f"{LITELLM_URL}/v1",
+        "model_id": "gpt",
+        "type": "litellm",
+        "description": "GPT-4.1 via OpenAI API",
+    },
 }
 
 # --- HTTP client pool ---
@@ -134,7 +140,7 @@ mcp = FastMCP(
     instructions=(
         "Access local and cloud AI models. Route completions, embeddings, "
         "and reranking directly to vLLM on FOUNDRY/WORKSHOP. Use aliases: "
-        "reasoning, fast, coding, embedding, reranker, claude, deepseek, gemini."
+        "reasoning, fast, coding, embedding, reranker, claude, gpt, deepseek, gemini."
     ),
 )
 
@@ -154,7 +160,7 @@ async def complete(
 
     Args:
         model: Model alias. Local (free): reasoning, fast, coding, local.
-               Cloud (paid): claude, deepseek, gemini.
+               Cloud (paid): claude, gpt, deepseek, gemini.
         messages: Chat messages as [{"role": "user", "content": "..."}]
         prompt: Simple text prompt (alternative to messages)
         temperature: Sampling temperature (0.0-2.0, default 0.7)

@@ -1,0 +1,13 @@
+[project]
+name = "ls-knowledge"
+version = "0.1.0"
+description = "Local-System knowledge base MCP server — RAG search for any coding tool"
+requires-python = ">=3.12"
+dependencies = [
+    "fastmcp>=2.0",
+    "httpx>=0.27",
+    "pydantic>=2.0",
+]
+
+[project.scripts]
+ls-knowledge = "ls_knowledge.server:main"
