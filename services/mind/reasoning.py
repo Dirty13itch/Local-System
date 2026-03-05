@@ -7,6 +7,7 @@ Handles:
 - Multi-turn conversations with history
 - Tool-augmented agent workflows
 - Memory-integrated context enrichment
+- Workspace-aware model/tool/persona selection
 """
 
 from __future__ import annotations
@@ -15,7 +16,7 @@ import json
 import logging
 import time
 from datetime import datetime, timezone
-from typing import Any
+from typing import Any, TYPE_CHECKING
 
 import httpx
 
@@ -27,6 +28,9 @@ from .db import MindDB
 from .events import EventBus
 from .router import Capability, CapabilityRouter
 from .tools import ToolRegistry
+
+if TYPE_CHECKING:
+    from .workspace_manager import WorkspaceConfig
 
 logger = logging.getLogger("mind.reasoning")
 
@@ -109,19 +113,25 @@ class ReasoningEngine:
         tools: list[str] | None = None,
         max_iterations: int | None = None,
         stream: bool = False,
+        workspace: WorkspaceConfig | None = None,
     ) -> dict[str, Any]:
         """Process a message through the full reasoning loop.
 
+        Args:
+            workspace: Optional workspace config that shapes model, tools,
+                       persona, and memory tier priorities.
+
         Returns:
             Dict with keys: response, conversation_id, model, capability,
-            tool_calls, tokens, latency_ms
+            tool_calls, tokens, latency_ms, workspace
         """
         start = time.time()
 
         # 1. CONTEXTUALIZE — resolve conversation, load history
         conv_id = conversation_id or generate_id("conv")
+        ws_slug = workspace.slug if workspace else "default"
         if self.db.ready:
-            await self.db.create_conversation(conv_id, model=model or "reasoning")
+            await self.db.create_conversation(conv_id, workspace=ws_slug, model=model or "reasoning")
 
         history = []
         if conversation_id and self.db.ready:
@@ -131,8 +141,21 @@ class ReasoningEngine:
         # 2. ROUTE — classify capability, pick model and tools
         spec = SpecialistType(specialist) if specialist else None
         capability = self.router.classify(message, specialist=spec)
-        resolved_model = model or self.router.get_model(capability)
-        resolved_tools = tools or self.router.get_tools(capability)
+
+        # Workspace overrides (lowest priority — explicit params win)
+        resolved_model = model
+        resolved_tools = tools
+
+        if workspace and not resolved_model:
+            resolved_model = workspace.default_model
+        if workspace and not resolved_tools:
+            resolved_tools = workspace.tools
+
+        # Capability-based defaults (if workspace didn't set them)
+        if not resolved_model:
+            resolved_model = self.router.get_model(capability)
+        if not resolved_tools:
+            resolved_tools = self.router.get_tools(capability)
 
         # Agent preset overrides
         if agent_id and agent_id in self.agents:
@@ -145,12 +168,17 @@ class ReasoningEngine:
 
         max_iter = max_iterations or 10
 
-        # 3. ASSEMBLE — build prompt with memory context
+        # 3. ASSEMBLE — build prompt with memory context + workspace persona
         memory_context = await self._fetch_memory_context(message)
 
         system_prompt = self.router.get_system_prompt(capability)
         if agent_id and agent_id in self.agents:
             system_prompt = self.agents[agent_id].system_prompt
+
+        # Inject workspace context into system prompt
+        if workspace:
+            ws_fragment = workspace.to_system_prompt_fragment()
+            system_prompt = f"{ws_fragment}\n\n{system_prompt}"
 
         if memory_context:
             ctx_block = "\n".join(f"- {c}" for c in memory_context)
@@ -169,7 +197,7 @@ class ReasoningEngine:
                 generate_id("msg"), conv_id, "user", message
             )
 
-        # 4-6. THINK → ACT → OBSERVE (agent loop)
+        # 4-6. THINK -> ACT -> OBSERVE (agent loop)
         tool_defs = self.tools.get_definitions(resolved_tools) if resolved_tools else None
         all_tool_calls: list[dict] = []
         total_tokens_in = 0
@@ -288,6 +316,7 @@ class ReasoningEngine:
                     "conversation_id": conv_id,
                     "capability": capability.value,
                     "model": resolved_model,
+                    "workspace": ws_slug,
                     "tokens_in": total_tokens_in,
                     "tokens_out": total_tokens_out,
                     "latency_ms": total_ms,
@@ -300,6 +329,7 @@ class ReasoningEngine:
             "conversation_id": conv_id,
             "model": resolved_model,
             "capability": capability.value,
+            "workspace": ws_slug,
             "tool_calls": all_tool_calls,
             "tokens": {"in": total_tokens_in, "out": total_tokens_out},
             "latency_ms": total_ms,

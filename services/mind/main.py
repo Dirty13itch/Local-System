@@ -7,6 +7,7 @@ The brain of the system. Provides:
   - Conversation persistence
   - Event-driven architecture via Redis Streams
   - Task lifecycle management
+  - Workspace-aware context switching
 
 Runs on DEV (:8710). All inference routed through LiteLLM on VAULT:4000.
 """
@@ -36,6 +37,7 @@ from .events import EventBus
 from .reasoning import ReasoningEngine
 from .router import CapabilityRouter
 from .tools import ToolRegistry
+from .workspace_manager import WorkspaceManager
 
 settings = get_settings()
 logger = setup_logging("mind", settings)
@@ -44,6 +46,7 @@ logger = setup_logging("mind", settings)
 _db = MindDB()
 _events = EventBus()
 _router = CapabilityRouter()
+_workspaces = WorkspaceManager()
 _tools: ToolRegistry | None = None
 _engine: ReasoningEngine | None = None
 
@@ -60,6 +63,12 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     await _db.init()
     await _events.init()
 
+    # Init workspace manager with shared DB pool and Redis client
+    await _workspaces.init(
+        db_pool=_db._pool,
+        redis_client=_events._redis,
+    )
+
     _tools = ToolRegistry(settings, app.state.http_client)
     _engine = ReasoningEngine(
         tool_registry=_tools,
@@ -74,6 +83,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         "events": _events.ready,
         "tools": len(_tools.list_tools()),
         "agents": len(_engine.list_agents()),
+        "workspaces": len(_workspaces.list_workspaces()),
     }
     logger.info(f"MIND service ready: {status}")
 
@@ -88,7 +98,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
 
 app = FastAPI(
     title="Local-System MIND",
-    version="0.1.0",
+    version="0.2.0",
     lifespan=lifespan,
 )
 
@@ -103,7 +113,7 @@ async def health() -> dict:
     return {
         **HealthResponse(
             service="mind",
-            version="0.1.0",
+            version="0.2.0",
             node=settings.node.name.value,
             uptime_seconds=time.time() - app.state.start_time,
         ).model_dump(),
@@ -112,6 +122,7 @@ async def health() -> dict:
             "events": _events.ready,
             "tools": _tools.list_tools() if _tools else [],
             "agents": [a.name for a in _engine.list_agents()] if _engine else [],
+            "workspaces": len(_workspaces.list_workspaces()),
         },
     }
 
@@ -141,11 +152,18 @@ async def chat_completions(req: ChatRequest) -> dict:
     if not user_message:
         raise HTTPException(status_code=400, detail="No user message found")
 
+    # Resolve workspace if session_id provided
+    workspace = None
+    session_id = getattr(req, "session_id", None)
+    if session_id:
+        workspace = await _workspaces.get_active_workspace(session_id)
+
     result = await _engine.process(
         message=user_message,
         conversation_id=req.conversation_id,
         model=req.model,
         stream=req.stream,
+        workspace=workspace,
     )
 
     # Return in OpenAI-compatible format
@@ -168,6 +186,7 @@ async def chat_completions(req: ChatRequest) -> dict:
         },
         "conversation_id": result["conversation_id"],
         "capability": result["capability"],
+        "workspace": result.get("workspace"),
         "latency_ms": result["latency_ms"],
     }
 
@@ -177,7 +196,7 @@ async def process_message(body: dict) -> dict:
     """Process a message through the MIND reasoning loop.
 
     More flexible than chat/completions — supports specialist routing,
-    agent selection, and tool overrides.
+    agent selection, tool overrides, and workspace context.
     """
     if not _engine:
         raise HTTPException(status_code=503, detail="Reasoning engine not initialized")
@@ -185,6 +204,15 @@ async def process_message(body: dict) -> dict:
     message = body.get("message", "")
     if not message:
         raise HTTPException(status_code=400, detail="'message' is required")
+
+    # Resolve workspace
+    workspace = None
+    session_id = body.get("session_id")
+    workspace_slug = body.get("workspace")
+    if workspace_slug:
+        workspace = _workspaces.get_workspace(workspace_slug)
+    elif session_id:
+        workspace = await _workspaces.get_active_workspace(session_id)
 
     return await _engine.process(
         message=message,
@@ -194,7 +222,80 @@ async def process_message(body: dict) -> dict:
         agent_id=body.get("agent_id"),
         tools=body.get("tools"),
         max_iterations=body.get("max_iterations"),
+        workspace=workspace,
     )
+
+
+# =============================================================================
+# Workspaces
+# =============================================================================
+
+
+@app.get("/v1/workspaces")
+async def list_workspaces() -> dict:
+    """List all available workspaces."""
+    workspaces = _workspaces.list_workspaces()
+    return {"workspaces": workspaces, "total": len(workspaces)}
+
+
+@app.get("/v1/workspaces/{slug}")
+async def get_workspace(slug: str) -> dict:
+    """Get a workspace by slug."""
+    ws = _workspaces.get_workspace(slug)
+    if not ws:
+        raise HTTPException(status_code=404, detail=f"Workspace '{slug}' not found")
+    return {
+        "slug": ws.slug,
+        "name": ws.name,
+        "type": ws.workspace_type,
+        "icon": ws.icon,
+        "description": ws.description,
+        "default_model": ws.default_model,
+        "persona": ws.persona,
+        "tools": ws.tools,
+        "memory_tiers": ws.memory_tiers,
+    }
+
+
+@app.get("/v1/workspaces/active/{session_id}")
+async def get_active_workspace(session_id: str) -> dict:
+    """Get the active workspace for a session."""
+    ws = await _workspaces.get_active_workspace(session_id)
+    return {
+        "slug": ws.slug,
+        "name": ws.name,
+        "type": ws.workspace_type,
+        "icon": ws.icon,
+        "default_model": ws.default_model,
+    }
+
+
+@app.put("/v1/workspaces/active/{session_id}")
+async def set_active_workspace(session_id: str, body: dict) -> dict:
+    """Switch the active workspace for a session."""
+    slug = body.get("slug", "")
+    if not slug:
+        raise HTTPException(status_code=400, detail="'slug' is required")
+
+    ws = await _workspaces.set_active_workspace(session_id, slug)
+    if not ws:
+        raise HTTPException(status_code=404, detail=f"Workspace '{slug}' not found")
+
+    if _events.ready:
+        await _events.publish(
+            "workspace.switched", "workspace_switched",
+            {"session_id": session_id, "workspace": slug, "name": ws.name},
+        )
+
+    return {
+        "slug": ws.slug,
+        "name": ws.name,
+        "type": ws.workspace_type,
+        "icon": ws.icon,
+        "default_model": ws.default_model,
+        "tools": ws.tools,
+        "memory_tiers": ws.memory_tiers,
+    }
 
 
 # =============================================================================
@@ -309,6 +410,7 @@ async def mind_stats() -> dict:
         "events": _events.ready,
         "tools": _tools.list_tools() if _tools else [],
         "agents": [a.name for a in _engine.list_agents()] if _engine else [],
+        "workspaces": _workspaces.list_workspaces(),
     }
 
 
