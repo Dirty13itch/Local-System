@@ -24,7 +24,7 @@ all:
           node_role: creative
         vault:
           ansible_host: "{{ vault_ip }}"  # UPDATE after discovery
-          node_role: orchestrator
+          node_role: vault
 
     # --- Development Node (Linux, Docker, Claude Code) ---
     dev:

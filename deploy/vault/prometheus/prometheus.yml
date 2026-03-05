@@ -36,9 +36,9 @@ scrape_configs:
     static_configs:
       - targets: ['localhost:8720']
 
-  - job_name: 'orchestrator'
+  - job_name: 'mind'
     static_configs:
-      - targets: ['localhost:8703']
+      - targets: ['localhost:8710']
 
   # --- Inference ---
   - job_name: 'litellm'

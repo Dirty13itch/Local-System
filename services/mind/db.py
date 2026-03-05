@@ -139,7 +139,7 @@ class MindDB:
         async with self._pool.acquire() as conn:
             if workspace:
                 rows = await conn.fetch(
-                    "SELECT * FROM mind_conversations WHERE workspace = $1"
+                    "SELECT * FROM mind_conversations WHERE workspace = $1 "
                     "ORDER BY updated_at DESC LIMIT $2",
                     workspace, limit,
                 )
@@ -191,7 +191,7 @@ class MindDB:
             return []
         async with self._pool.acquire() as conn:
             rows = await conn.fetch(
-                "SELECT * FROM mind_messages WHERE conversation_id = $1"
+                "SELECT * FROM mind_messages WHERE conversation_id = $1 "
                 "ORDER BY created_at ASC LIMIT $2",
                 conversation_id, limit,
             )
@@ -255,7 +255,7 @@ class MindDB:
         async with self._pool.acquire() as conn:
             if status:
                 rows = await conn.fetch(
-                    "SELECT * FROM mind_tasks WHERE status = $1"
+                    "SELECT * FROM mind_tasks WHERE status = $1 "
                     "ORDER BY created_at DESC LIMIT $2",
                     status, limit,
                 )

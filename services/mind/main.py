@@ -160,7 +160,7 @@ async def chat_completions(req: ChatRequest) -> dict:
 
     result = await _engine.process(
         message=user_message,
-        conversation_id=req.conversation_id,
+        conversation_id=getattr(req, "conversation_id", None),
         model=req.model,
         stream=req.stream,
         workspace=workspace,

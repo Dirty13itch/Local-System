@@ -21,7 +21,7 @@ class NodeName(str, Enum):
 class NodeRole(str, Enum):
     INFERENCE = "inference"          # FOUNDRY: vLLM heavy models (5090 + 4090)
     CREATIVE = "creative"            # WORKSHOP: vLLM fast, ComfyUI, TTS
-    ORCHESTRATOR = "orchestrator"    # VAULT: EPYC brain, DBs, services
+    VAULT_NODE = "vault"             # VAULT: Unraid, DBs, LiteLLM, storage
     OPERATIONS = "operations"        # DEV: Claude Code, Ansible, ops center
     CLIENT = "client"                # DESK/MOBILE: thin clients
 

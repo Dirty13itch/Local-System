@@ -32,13 +32,15 @@ async def health(request: Request) -> HealthResponse:
 async def cluster_health(request: Request) -> dict:
     """Check health of all services across the cluster."""
     client = _client(request)
+    _dev = settings.network.dev
     _vault = settings.network.vault
     results = {}
 
     services = {
         "litellm": settings.inference.litellm_host,
-        "memory": f"http://{_vault}:{settings.ports.memory}",
-        "orchestrator": f"http://{_vault}:{settings.ports.orchestrator}",
+        "memory": f"http://{_dev}:{settings.ports.memory}",
+        "mind": f"http://{_dev}:{settings.ports.mind}",
+        "perception": f"http://{_dev}:{settings.ports.perception}",
     }
 
     for name, url in services.items():

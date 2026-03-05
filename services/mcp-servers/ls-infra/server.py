@@ -64,7 +64,7 @@ async def cluster_health() -> dict:
             "litellm (VAULT:4000)": f"{LITELLM_URL}/health",
             "gateway (DEV:8700)": f"http://{DEV_HOST}:{GATEWAY_PORT}/health",
             "memory (VAULT:8720)": f"http://{VAULT_HOST}:{MEMORY_PORT}/health",
-            "orchestrator (VAULT:8703)": f"http://{VAULT_HOST}:{ORCHESTRATOR_PORT}/health",
+            "mind (DEV:8710)": f"http://{DEV_HOST}:8710/health",
         },
         "databases": {
             "qdrant (VAULT:6333)": f"http://{VAULT_HOST}:6333/healthz",
@@ -178,7 +178,7 @@ async def service_logs(
     """Get recent logs from a DEV service via journalctl or process output.
 
     Args:
-        service: Service name (gateway, memory, orchestrator)
+        service: Service name (gateway, memory, mind, perception)
         lines: Number of log lines to retrieve (default: 50)
     """
     try:

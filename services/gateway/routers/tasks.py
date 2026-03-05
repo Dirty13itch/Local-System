@@ -1,4 +1,4 @@
-"""Agent task routes — proxy to orchestrator service."""
+"""Agent task routes — proxy to MIND service."""
 from __future__ import annotations
 
 import httpx
@@ -9,7 +9,7 @@ from local_system.config import get_settings
 settings = get_settings()
 router = APIRouter(tags=["tasks"])
 
-_vault = settings.network.vault
+_dev = settings.network.dev
 
 
 def _client(request: Request) -> httpx.AsyncClient:
@@ -22,7 +22,7 @@ async def create_task(request: Request, body: dict) -> dict:
     client = _client(request)
     try:
         resp = await client.post(
-            f"http://{_vault}:{settings.ports.orchestrator}/v1/tasks",
+            f"http://{_dev}:{settings.ports.mind}/v1/mind/process",
             json=body,
         )
         resp.raise_for_status()
@@ -37,7 +37,7 @@ async def get_task(request: Request, task_id: str) -> dict:
     client = _client(request)
     try:
         resp = await client.get(
-            f"http://{_vault}:{settings.ports.orchestrator}/v1/tasks/{task_id}"
+            f"http://{_dev}:{settings.ports.mind}/v1/tasks/{task_id}"
         )
         resp.raise_for_status()
         return resp.json()
