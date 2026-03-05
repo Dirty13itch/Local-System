@@ -24,6 +24,7 @@ from .routers import (
     memory as memory_router,
     queens as queens_router,
     tasks as tasks_router,
+    workspaces as workspaces_router,
 )
 
 from local_system.config import get_settings
@@ -83,6 +84,7 @@ app.include_router(memory_router.router)
 app.include_router(tasks_router.router)
 app.include_router(generate_router.router)
 app.include_router(queens_router.router)
+app.include_router(workspaces_router.router)
 
 
 # ─── Metrics ─────────────────────────────────────────────────────────────

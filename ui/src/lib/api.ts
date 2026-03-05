@@ -9,6 +9,15 @@ export interface Message {
   content: string;
 }
 
+
+export interface Workspace {
+  slug: string;
+  name: string;
+  type: string;
+  icon: string;
+  default_model: string;
+  description: string;
+}
 export interface ChatRequest {
   model: string;
   messages: Message[];
@@ -499,6 +508,43 @@ class ApiClient {
       });
     } catch {
       // Ignore cancel failures
+    }
+  }
+
+
+  // ─── Workspaces ─────────────────────────────────────────────────────
+
+  async listWorkspaces(): Promise<Workspace[]> {
+    try {
+      const resp = await fetch(`${this.baseUrl}/v1/workspaces`);
+      const data = await resp.json();
+      return data.workspaces || [];
+    } catch {
+      return [];
+    }
+  }
+
+  async getActiveWorkspace(sessionId: string): Promise<Workspace | null> {
+    try {
+      const resp = await fetch(`${this.baseUrl}/v1/workspaces/active/${sessionId}`);
+      if (!resp.ok) return null;
+      return resp.json();
+    } catch {
+      return null;
+    }
+  }
+
+  async setActiveWorkspace(sessionId: string, slug: string): Promise<Workspace | null> {
+    try {
+      const resp = await fetch(`${this.baseUrl}/v1/workspaces/active/${sessionId}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ slug }),
+      });
+      if (!resp.ok) return null;
+      return resp.json();
+    } catch {
+      return null;
     }
   }
 
