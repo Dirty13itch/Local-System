@@ -3,10 +3,12 @@
 #
 # GPU Layout (FOUNDRY 192.168.1.244):
 #   GPU 0,1: reasoning TP=2 (Qwen3-32B-AWQ) :8000
-#   GPU 2:   coding (Qwen3-32B-AWQ, 4090)   :8002
-#   GPU 3:   embedding + reranker            :8001 / :8003
+#   GPU 2:   coding (GLM-4.7-Flash-GPTQ-4bit, 4090) :8002
+#   GPU 3,4: creative (Huihui-Qwen3.5-27B-abliterated FP8, TP=2) :8004
+# DEV (192.168.1.189):
+#   GPU 0:   embedding + reranker :8001 / :8003
 # WORKSHOP (192.168.1.225):
-#   GPU 0:   fast (Qwen3-14B FP8, 5090)     :8000
+#   GPU 0:   fast (Qwen3-14B FP8, 5090) :8000
 
 model_list:
   # === LOCAL MODELS (zero cost, full privacy) ===
@@ -19,7 +21,7 @@ model_list:
 
   - model_name: "coding"
     litellm_params:
-      model: "hosted_vllm//models/Qwen3-32B-AWQ"
+      model: "hosted_vllm//models/GLM-4.7-Flash-GPTQ-4bit"
       api_base: "http://192.168.1.244:8002/v1"
       api_key: "not-needed"
 
@@ -29,10 +31,16 @@ model_list:
       api_base: "http://192.168.1.225:8000/v1"
       api_key: "not-needed"
 
+  - model_name: "creative"
+    litellm_params:
+      model: "hosted_vllm//models/Huihui-Qwen3.5-27B-abliterated"
+      api_base: "http://192.168.1.244:8004/v1"
+      api_key: "not-needed"
+
   - model_name: "embedding"
     litellm_params:
       model: "hosted_vllm//models/Qwen3-Embedding-0.6B"
-      api_base: "http://192.168.1.244:8001/v1"
+      api_base: "http://192.168.1.189:8001/v1"
       api_key: "not-needed"
     model_info:
       mode: embedding
@@ -40,15 +48,10 @@ model_list:
   - model_name: "reranker"
     litellm_params:
       model: "hosted_vllm//models/Qwen3-Reranker-0.6B"
-      api_base: "http://192.168.1.244:8003/v1"
+      api_base: "http://192.168.1.189:8003/v1"
       api_key: "not-needed"
 
-  - model_name: "local"
-    litellm_params:
-      model: "ollama/dolphin-mistral:7b"
-      api_base: "http://192.168.1.189:11434"
-
-  # === CLOUD APIS (all keys set via env vars on VAULT) ===
+  # === CLOUD APIS (fallback chain — keys via env vars on VAULT) ===
 
   - model_name: "claude"
     litellm_params:
@@ -74,6 +77,10 @@ router_settings:
   routing_strategy: simple-shuffle
   num_retries: 2
   timeout: 120
+  fallbacks:
+    - reasoning: ["deepseek", "claude"]
+    - coding: ["deepseek", "claude"]
+    - fast: ["deepseek"]
   model_group_alias:
     "gpt-4": { model: "reasoning", hidden: false }
     "gpt-3.5-turbo": { model: "fast", hidden: false }

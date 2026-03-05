@@ -1,4 +1,4 @@
-"""Chat & inference routes — proxy to LiteLLM."""
+"""Chat & inference routes — proxy to LiteLLM with content-aware routing."""
 from __future__ import annotations
 
 import httpx
@@ -15,6 +15,79 @@ from local_system.models import (
 
 settings = get_settings()
 router = APIRouter(tags=["chat"])
+
+# ─── Content Routing ──────────────────────────────────────────────────────
+
+# Workspaces that should always use the uncensored/creative model
+_CREATIVE_WORKSPACES = {"media-library", "eobq", "creative-studio", "creative"}
+
+# Tags that signal uncensored content is needed
+_NSFW_TAGS = {"nsfw", "uncensored", "adult", "explicit", "abliterated"}
+
+# Tags that signal creative but censored content
+_CREATIVE_TAGS = {"creative", "fiction", "roleplay", "story", "writing"}
+
+# Task types for code-focused routing
+_CODING_TASKS = {"coding", "refactor", "debug", "code-review", "implementation"}
+
+# Task types for deep reasoning
+_DEEP_REASONING_TASKS = {"architecture", "deep-debug", "analysis", "math", "logic", "planning"}
+
+
+def select_model(body: ChatRequest) -> str:
+    """Select the best model based on request metadata.
+
+    Only overrides the model when:
+    - model is "auto" (explicit auto-routing request)
+    - model is the outdated default ("llama-70b")
+
+    When an explicit alias is set (reasoning, coding, creative, etc.),
+    the user's choice is respected.
+
+    Routing priority:
+    1. NSFW tags or creative workspaces → creative (abliterated)
+    2. Creative tags → creative (could be upgraded to creative-alt later)
+    3. Coding task types → coding
+    4. Deep reasoning task types → reasoning
+    5. Default → reasoning
+    """
+    # If user explicitly chose a valid model alias, respect it
+    explicit_aliases = {
+        "reasoning", "coding", "creative", "fast",
+        "coding-alt", "creative-alt", "reasoning-alt", "dev-local",
+        "claude", "gpt", "deepseek", "gemini",
+        "embedding", "reranker",
+    }
+    if body.model in explicit_aliases:
+        return body.model
+
+    # Auto-route based on metadata
+    meta = body.metadata or {}
+    tags = set(meta.get("tags", []))
+    workspace = meta.get("workspace", "").lower()
+    task_type = meta.get("task_type", "").lower()
+
+    # 1. Uncensored content
+    if tags & _NSFW_TAGS or workspace in _CREATIVE_WORKSPACES:
+        return "creative"
+
+    # 2. Creative but potentially censored
+    if tags & _CREATIVE_TAGS:
+        return "creative"
+
+    # 3. Coding tasks
+    if task_type in _CODING_TASKS:
+        return "coding"
+
+    # 4. Deep reasoning
+    if task_type in _DEEP_REASONING_TASKS:
+        return "reasoning"
+
+    # 5. Default — reasoning is the most capable general model
+    return "reasoning"
+
+
+# ─── Helpers ──────────────────────────────────────────────────────────────
 
 
 def _client(request: Request) -> httpx.AsyncClient:
@@ -39,9 +112,15 @@ def _chat_payload(body: ChatRequest, stream: bool = False) -> dict:
     }
 
 
+# ─── Routes ───────────────────────────────────────────────────────────────
+
+
 @router.post("/v1/chat/completions", response_model=ChatResponse)
 async def chat(request: Request, body: ChatRequest) -> ChatResponse:
-    """Route chat through LiteLLM for intelligent model routing."""
+    """Route chat through LiteLLM with content-aware model selection."""
+    # Apply content routing if model is auto or default
+    body.model = select_model(body)
+
     client = _client(request)
     try:
         resp = await client.post(
@@ -67,7 +146,9 @@ async def chat(request: Request, body: ChatRequest) -> ChatResponse:
 
 @router.post("/v1/chat/completions/stream")
 async def chat_stream(request: Request, body: ChatRequest) -> StreamingResponse:
-    """Stream chat via SSE through LiteLLM."""
+    """Stream chat via SSE through LiteLLM with content-aware routing."""
+    body.model = select_model(body)
+
     client = _client(request)
 
     async def event_stream():
@@ -93,6 +174,7 @@ async def chat_websocket(websocket: WebSocket):
         while True:
             data = await websocket.receive_json()
             body = ChatRequest(**data)
+            body.model = select_model(body)
             async with client.stream(
                 "POST",
                 f"{_litellm_url()}/v1/chat/completions",

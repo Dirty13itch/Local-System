@@ -42,7 +42,7 @@ class ToolDefinition(BaseModel):
 
 
 class ChatRequest(BaseModel):
-    model: str = "llama-70b"
+    model: str = "auto"
     messages: list[Message]
     temperature: float = 0.7
     max_tokens: int = 4096
@@ -216,7 +216,7 @@ class AgentConfig(BaseModel):
     name: str
     specialist: SpecialistType = SpecialistType.GENERAL
     system_prompt: str
-    model: str = "llama-70b"
+    model: str = "auto"
     tools: list[str] = Field(default_factory=list)
     max_iterations: int = 10
     temperature: float = 0.7

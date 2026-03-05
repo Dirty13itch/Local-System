@@ -1,10 +1,67 @@
-# DEV node (192.168.1.189) — Application services
-# Build from project root: docker compose -f deploy/dev/docker-compose.yml up -d
+# DEV node (192.168.1.189) — Application Services + Embedding/Reranking
+# Ryzen 9 9900X, 60GB RAM, RTX 5060 Ti 16GB
 #
-# These services run on DEV alongside the databases on VAULT.
-# All inference goes through LiteLLM on VAULT:4000.
+# GPU Layout (Phase 3 — March 2026):
+#   GPU 0: RTX 5060 Ti 16GB → embedding (0.6B) + reranker (0.6B) :8001/:8003
+#
+# Application services run here alongside GPU workloads.
+# All LLM inference goes through LiteLLM on VAULT:4000.
+# Models served from VAULT NFS: /mnt/vault/models:/models:ro
+#
+# Usage: docker compose -f deploy/dev/docker-compose.yml up -d
 
 services:
+  # --- Embedding + Reranking (moved from FOUNDRY in Phase 3.5a) ---
+
+  vllm-embedding:
+    image: vllm/vllm-openai:latest
+    container_name: vllm-embedding
+    restart: unless-stopped
+    network_mode: host
+    runtime: nvidia
+    ipc: host
+    environment:
+      - NVIDIA_VISIBLE_DEVICES=0
+      - CUDA_DEVICE_ORDER=PCI_BUS_ID
+    volumes:
+      - /mnt/vault/models:/models:ro
+    command: >
+      python3 -m vllm.entrypoints.openai.api_server
+      --model /models/Qwen3-Embedding-0.6B
+      --task embedding
+      --host 0.0.0.0
+      --port 8001
+      --max-model-len 8192
+      --gpu-memory-utilization 0.40
+      --max-num-seqs 256
+      --dtype auto
+
+  vllm-reranker:
+    image: vllm/vllm-openai:latest
+    container_name: vllm-reranker
+    restart: unless-stopped
+    network_mode: host
+    runtime: nvidia
+    ipc: host
+    environment:
+      - NVIDIA_VISIBLE_DEVICES=0
+      - CUDA_DEVICE_ORDER=PCI_BUS_ID
+    volumes:
+      - /mnt/vault/models:/models:ro
+    command: >
+      python3 -m vllm.entrypoints.openai.api_server
+      --model /models/Qwen3-Reranker-0.6B
+      --task score
+      --host 0.0.0.0
+      --port 8003
+      --max-model-len 8192
+      --gpu-memory-utilization 0.20
+      --max-num-seqs 64
+      --dtype auto
+      --enable-prefix-caching
+
+  # --- Application Services ---
+
   gateway:
     build:
       context: ../../
@@ -31,21 +88,6 @@ services:
     environment:
       - NODE_NAME=dev
       - NODE_ROLE=memory
-    restart: unless-stopped
-    networks:
-      - local-system
-
-  orchestrator:
-    build:
-      context: ../../
-      dockerfile: services/orchestrator/Dockerfile
-    container_name: ls-orchestrator
-    ports:
-      - "8703:8703"
-    env_file: ../../.env
-    environment:
-      - NODE_NAME=dev
-      - NODE_ROLE=orchestrator
     restart: unless-stopped
     networks:
       - local-system

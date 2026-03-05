@@ -1,13 +1,14 @@
 # FOUNDRY — Heavy Inference Node (192.168.1.244)
-# EPYC 7663, 256GB RAM, 5x GPUs
+# EPYC 7663, 256GB RAM, 5x GPUs (4x 5070 Ti 16GB + 1x 4090 24GB)
 #
-# GPU Layout:
-#   GPU 0,1: 2x RTX 5070 Ti 16GB → reasoning (TP=2, 32GB total)
-#   GPU 2:   RTX 4090 24GB       → coding (single GPU)
-#   GPU 3:   RTX 5070 Ti 16GB    → embedding + reranker (shared)
-#   GPU 4:   RTX 5070 Ti 16GB    → SPARE
+# GPU Layout (Phase 3 — March 2026):
+#   GPU 0,1: 2x RTX 5070 Ti 16GB → reasoning TP=2 (Qwen3-32B-AWQ) :8000
+#   GPU 2:   RTX 4090 24GB       → coding (GLM-4.7-Flash-GPTQ-4bit) :8002
+#   GPU 3:   RTX 5070 Ti 16GB    → creative (Huihui-Qwen3-8B-abliterated-v2 FP8) :8004
+#   GPU 4:   RTX 5070 Ti 16GB    → FREE (reserved for future reasoning TP=4)
 #
 # Models served from VAULT NFS: /mnt/vault/models:/models:ro
+# Note: embed/rerank moved to DEV in Phase 3.5a
 #
 # Usage: docker compose up -d
 # Note: Requires NVIDIA Container Toolkit (nvidia-ctk)
@@ -46,9 +47,11 @@ services:
       --tool-call-parser hermes
       --swap-space 16
       --enable-sleep-mode
+      --enable-prefix-caching
+      --kv-cache-dtype fp8_e5m2
 
   vllm-coding:
-    image: athanor/vllm:custom
+    image: athanor/vllm:v2
     container_name: vllm-coding
     restart: unless-stopped
     network_mode: host
@@ -65,64 +68,46 @@ services:
       - /mnt/vault/models:/models:ro
     command: >
       python3 -m vllm.entrypoints.openai.api_server
-      --model /models/Qwen3-32B-AWQ
-      --quantization awq
+      --model /models/GLM-4.7-Flash-GPTQ-4bit
+      --quantization gptq
       --host 0.0.0.0
       --port 8002
-      --max-model-len 8192
-      --gpu-memory-utilization 0.85
+      --max-model-len 32768
+      --gpu-memory-utilization 0.90
       --max-num-seqs 8
-      --enable-auto-tool-choice
-      --tool-call-parser hermes
-      --swap-space 8
-      --enable-sleep-mode
-
-  vllm-embedding:
-    image: nvcr.io/nvidia/vllm:25.12-py3
-    container_name: vllm-embedding
-    restart: unless-stopped
-    network_mode: host
-    runtime: nvidia
-    ipc: host
-    environment:
-      - NVIDIA_VISIBLE_DEVICES=3
-      - CUDA_DEVICE_ORDER=PCI_BUS_ID
-    volumes:
-      - /mnt/vault/models:/models:ro
-    command: >
-      python3 -m vllm.entrypoints.openai.api_server
-      --model /models/Qwen3-Embedding-0.6B
-      --task embedding
-      --host 0.0.0.0
-      --port 8001
-      --max-model-len 8192
-      --gpu-memory-utilization 0.40
-      --max-num-seqs 256
-      --dtype auto
-
-  vllm-reranker:
-    image: nvcr.io/nvidia/vllm:25.12-py3
-    container_name: vllm-reranker
-    restart: unless-stopped
-    network_mode: host
-    runtime: nvidia
-    ipc: host
-    environment:
-      - NVIDIA_VISIBLE_DEVICES=3
-      - CUDA_DEVICE_ORDER=PCI_BUS_ID
-    volumes:
-      - /mnt/vault/models:/models:ro
-    command: >
-      python3 -m vllm.entrypoints.openai.api_server
-      --model /models/Qwen3-Reranker-0.6B
-      --task score
-      --host 0.0.0.0
-      --port 8003
-      --max-model-len 8192
-      --gpu-memory-utilization 0.20
-      --max-num-seqs 64
-      --dtype auto
       --enable-prefix-caching
+      --enable-sleep-mode
+      --swap-space 4
+      --trust-remote-code
+
+  vllm-creative:
+    image: athanor/vllm:v2
+    container_name: vllm-creative
+    restart: unless-stopped
+    network_mode: host
+    runtime: nvidia
+    ipc: host
+    shm_size: 4g
+    environment:
+      - NVIDIA_VISIBLE_DEVICES=3
+      - CUDA_DEVICE_ORDER=PCI_BUS_ID
+      - FLASHINFER_DISABLE_VERSION_CHECK=1
+    volumes:
+      - /mnt/vault/models:/models:ro
+    command: >
+      python3 -m vllm.entrypoints.openai.api_server
+      --model /models/Huihui-Qwen3-8B-abliterated-v2
+      --quantization fp8
+      --dtype float16
+      --host 0.0.0.0
+      --port 8004
+      --max-model-len 32768
+      --gpu-memory-utilization 0.90
+      --max-num-seqs 8
+      --enable-prefix-caching
+      --enable-sleep-mode
+      --swap-space 4
+      --trust-remote-code
 
   # --- Monitoring ---
 
@@ -138,7 +123,7 @@ services:
     command:
       - '--path.procfs=/host/proc'
       - '--path.sysfs=/host/sys'
-      - '--collector.filesystem.mount-points-exclude=^/(sys|proc|dev|host|etc)($$|/)'
+      - '--collector.filesystem.mount-points-exclude=^/(sys|proc|dev|host|etc)(821205|/)'
     restart: unless-stopped
 
   dcgm-exporter:
