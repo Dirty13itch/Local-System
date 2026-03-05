@@ -148,6 +148,18 @@ class RAGConfig(BaseSettings):
     hybrid_search_alpha: float = Field(default=0.7, alias="HYBRID_SEARCH_ALPHA")
 
 
+class MeilisearchConfig(BaseSettings):
+    """Meilisearch — BM25 full-text search for hybrid retrieval."""
+
+    host: str = Field(default="192.168.1.203", alias="MEILISEARCH_HOST")
+    port: int = Field(default=7700, alias="MEILISEARCH_PORT")
+    key: str = Field(default="changeme", alias="MEILISEARCH_KEY")
+
+    @property
+    def url(self) -> str:
+        return f"http://{self.host}:{self.port}"
+
+
 class Settings(BaseSettings):
     """Aggregated settings for the Local-System."""
 
@@ -160,6 +172,7 @@ class Settings(BaseSettings):
     qdrant: QdrantConfig = Field(default_factory=QdrantConfig)
     neo4j: Neo4jConfig = Field(default_factory=Neo4jConfig)
     rag: RAGConfig = Field(default_factory=RAGConfig)
+    meilisearch: MeilisearchConfig = Field(default_factory=MeilisearchConfig)
 
     log_level: str = Field(default="INFO", alias="LOG_LEVEL")
     log_format: str = Field(default="json", alias="LOG_FORMAT")
