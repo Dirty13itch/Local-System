@@ -33,13 +33,12 @@ services:
       - /mnt/vault/models:/models:ro
     command: >
       python3 -m vllm.entrypoints.openai.api_server
-      --model /models/Qwen3-32B-AWQ
-      --quantization awq
+      --model /models/Qwen3.5-27B-FP8
       --tensor-parallel-size 2
       --host 0.0.0.0
       --port 8000
       --max-model-len 16384
-      --gpu-memory-utilization 0.90
+      --gpu-memory-utilization 0.92
       --max-num-seqs 32
       --enable-auto-tool-choice
       --tool-call-parser hermes
@@ -64,7 +63,7 @@ services:
       - /mnt/vault/models:/models:ro
     command: >
       python3 -m vllm.entrypoints.openai.api_server
-      --model /models/Qwen3-32B-AWQ
+      --model /models/Qwen3.5-27B-AWQ
       --quantization awq
       --host 0.0.0.0
       --port 8002

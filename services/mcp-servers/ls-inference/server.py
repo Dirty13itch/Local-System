@@ -6,8 +6,8 @@ instances on FOUNDRY and WORKSHOP. Falls back to LiteLLM on VAULT
 for cloud API models when available.
 
 Available model aliases:
-  "reasoning"  -> Qwen3-32B-AWQ on FOUNDRY TP=2 (GPUs 0,1) :8000
-  "coding"     -> Qwen3-32B-AWQ on FOUNDRY 4090 (GPU 2) :8002
+  "reasoning"  -> Qwen3.5-27B-FP8 on FOUNDRY TP=2 (GPUs 0,1) :8000
+  "coding"     -> Qwen3.5-27B-AWQ on FOUNDRY 4090 (GPU 2) :8002
   "fast"       -> Qwen3-14B FP8 on WORKSHOP (5090) :8000
   "embedding"  -> Qwen3-Embedding-0.6B on FOUNDRY (GPU 3) :8001
   "reranker"   -> Qwen3-Reranker-0.6B on FOUNDRY (GPU 3) :8003
@@ -40,15 +40,15 @@ MODEL_ROUTES: dict[str, dict[str, Any]] = {
     # Local vLLM models (zero cost, full privacy)
     "reasoning": {
         "base_url": f"http://{FOUNDRY_HOST}:8000/v1",
-        "model_id": "/models/Qwen3-32B-AWQ",
+        "model_id": "/models/Qwen3.5-27B-FP8",
         "type": "vllm",
-        "description": "Qwen3-32B-AWQ TP=2 on FOUNDRY (general reasoning)",
+        "description": "Qwen3.5-27B-FP8 TP=2 on FOUNDRY (general reasoning)",
     },
     "coding": {
         "base_url": f"http://{FOUNDRY_HOST}:8002/v1",
-        "model_id": "/models/Qwen3-32B-AWQ",
+        "model_id": "/models/Qwen3.5-27B-AWQ",
         "type": "vllm",
-        "description": "Qwen3-32B-AWQ on FOUNDRY 4090 (coding tasks)",
+        "description": "Qwen3.5-27B-AWQ on FOUNDRY 4090 (coding tasks)",
     },
     "fast": {
         "base_url": f"http://{WORKSHOP_HOST}:8000/v1",

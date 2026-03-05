@@ -36,9 +36,9 @@ class NodeConfig(BaseSettings):
 class NetworkConfig(BaseSettings):
     """Addresses of all nodes in the cluster."""
 
-    foundry: str = Field(default="changeme", alias="FOUNDRY_HOST")
-    workshop: str = Field(default="changeme", alias="WORKSHOP_HOST")
-    vault: str = Field(default="changeme", alias="VAULT_HOST")
+    foundry: str = Field(default="192.168.1.244", alias="FOUNDRY_HOST")
+    workshop: str = Field(default="192.168.1.225", alias="WORKSHOP_HOST")
+    vault: str = Field(default="192.168.1.203", alias="VAULT_HOST")
     dev: str = Field(default="192.168.1.189", alias="DEV_HOST")
 
     def host_for(self, node: NodeName) -> str:
@@ -75,21 +75,21 @@ class InferenceConfig(BaseSettings):
     """Inference stack configuration — LiteLLM routing to vLLM instances."""
 
     # LiteLLM is the single entry point for all inference
-    litellm_host: str = Field(default="http://${VAULT_HOST}:4000", alias="LITELLM_HOST")
-    litellm_key: str = Field(default="changeme", alias="LITELLM_KEY")
+    litellm_host: str = Field(default="http://192.168.1.203:4000", alias="LITELLM_HOST")
+    litellm_key: str = Field(default="sk-athanor-litellm-2026", alias="LITELLM_KEY")
 
     # vLLM instances (ports set after GPU discovery)
-    vllm_reasoning_host: str = Field(default="http://${FOUNDRY_HOST}:8000", alias="VLLM_REASONING_HOST")
-    vllm_fast_host: str = Field(default="http://${WORKSHOP_HOST}:8000", alias="VLLM_FAST_HOST")
-    vllm_embedding_host: str = Field(default="http://${FOUNDRY_HOST}:8001", alias="VLLM_EMBEDDING_HOST")
-    vllm_coding_host: str = Field(default="http://${FOUNDRY_HOST}:8002", alias="VLLM_CODING_HOST")
-    vllm_reranker_host: str = Field(default="http://${FOUNDRY_HOST}:8003", alias="VLLM_RERANKER_HOST")
+    vllm_reasoning_host: str = Field(default="http://192.168.1.244:8000", alias="VLLM_REASONING_HOST")
+    vllm_fast_host: str = Field(default="http://192.168.1.225:8000", alias="VLLM_FAST_HOST")
+    vllm_embedding_host: str = Field(default="http://192.168.1.244:8001", alias="VLLM_EMBEDDING_HOST")
+    vllm_coding_host: str = Field(default="http://192.168.1.244:8002", alias="VLLM_CODING_HOST")
+    vllm_reranker_host: str = Field(default="http://192.168.1.244:8003", alias="VLLM_RERANKER_HOST")
 
 
 class DatabaseConfig(BaseSettings):
     """PostgreSQL configuration."""
 
-    host: str = Field(default="${VAULT_HOST}", alias="POSTGRES_HOST")
+    host: str = Field(default="192.168.1.203", alias="POSTGRES_HOST")
     port: int = Field(default=5432, alias="POSTGRES_PORT")
     name: str = Field(default="local_system", alias="POSTGRES_DB")
     user: str = Field(default="local_system", alias="POSTGRES_USER")
@@ -107,7 +107,7 @@ class DatabaseConfig(BaseSettings):
 class RedisConfig(BaseSettings):
     """Redis 8 — cache, sessions, working memory, task queue, pub/sub."""
 
-    host: str = Field(default="${VAULT_HOST}", alias="REDIS_HOST")
+    host: str = Field(default="192.168.1.203", alias="REDIS_HOST")
     port: int = Field(default=6379, alias="REDIS_PORT")
     password: str = Field(default="changeme", alias="REDIS_PASSWORD")
 
@@ -119,7 +119,7 @@ class RedisConfig(BaseSettings):
 class QdrantConfig(BaseSettings):
     """Qdrant v1.17 vector database — episodic + resource memory."""
 
-    host: str = Field(default="${VAULT_HOST}", alias="QDRANT_HOST")
+    host: str = Field(default="192.168.1.203", alias="QDRANT_HOST")
     port: int = Field(default=6333, alias="QDRANT_PORT")
     grpc_port: int = Field(default=6334, alias="QDRANT_GRPC_PORT")
 
@@ -127,7 +127,7 @@ class QdrantConfig(BaseSettings):
 class Neo4jConfig(BaseSettings):
     """Neo4j knowledge graph — semantic memory."""
 
-    host: str = Field(default="${VAULT_HOST}", alias="NEO4J_HOST")
+    host: str = Field(default="192.168.1.203", alias="NEO4J_HOST")
     http_port: int = Field(default=7474, alias="NEO4J_HTTP_PORT")
     bolt_port: int = Field(default=7687, alias="NEO4J_BOLT_PORT")
     user: str = Field(default="neo4j", alias="NEO4J_USER")

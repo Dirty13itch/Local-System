@@ -60,7 +60,7 @@ logger = setup_logging("gateway", settings)
 # Allowed CORS origins — configured via env, defaults to local dev
 _cors_origins = os.environ.get(
     "CORS_ORIGINS",
-    f"http://localhost:3001,http://{settings.network.vault}:3001",
+    f"http://localhost:3000,http://localhost:3001,http://192.168.1.189:3000,http://192.168.1.50:3000,http://{settings.network.vault}:3001,http://{settings.network.dev}:3000",
 ).split(",")
 
 # Service URLs — all on VAULT unless noted

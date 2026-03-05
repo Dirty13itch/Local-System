@@ -106,8 +106,9 @@ class ApiClient {
 
         try {
           const data = JSON.parse(payload);
-          if (data.delta) {
-            onChunk(data.delta);
+          const content = data.choices?.[0]?.delta?.content || data.delta;
+          if (content) {
+            onChunk(content);
           }
         } catch {
           // Skip malformed chunks
