@@ -95,3 +95,20 @@ services:
 networks:
   local-system:
     driver: bridge
+
+  perception:
+    build:
+      context: ../../
+      dockerfile: services/perception/Dockerfile
+    container_name: ls-perception
+    ports:
+      - "8730:8730"
+    env_file: ../../.env
+    environment:
+      - NODE_NAME=dev
+      - NODE_ROLE=perception
+    volumes:
+      - /mnt/vault/data:/mnt/vault/data:ro
+    restart: unless-stopped
+    networks:
+      - local-system
