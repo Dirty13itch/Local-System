@@ -30,7 +30,7 @@ class Message(BaseModel):
 
 
 class ToolCall(BaseModel):
-    id: str
+    id: str = ""
     name: str
     arguments: dict[str, Any]
 
@@ -52,7 +52,7 @@ class ChatRequest(BaseModel):
 
 
 class ChatResponse(BaseModel):
-    id: str
+    id: str = ""
     model: str
     message: Message
     usage: TokenUsage
@@ -66,7 +66,7 @@ class TokenUsage(BaseModel):
 
 
 class StreamChunk(BaseModel):
-    id: str
+    id: str = ""
     model: str
     delta: str
     finish_reason: str | None = None
@@ -89,7 +89,7 @@ class MemoryTier(str, Enum):
 class MemoryEntry(BaseModel):
     """A single memory across any tier."""
 
-    id: str
+    id: str = ""
     tier: MemoryTier
     content: str
     metadata: dict[str, Any] = Field(default_factory=dict)
@@ -115,7 +115,7 @@ class WorkingContext(BaseModel):
 class EpisodicEvent(BaseModel):
     """A timestamped event in episodic memory."""
 
-    id: str
+    id: str = ""
     event_type: str  # conversation, task_outcome, discovery, error, feedback
     summary: str
     details: dict[str, Any] = Field(default_factory=dict)
@@ -128,7 +128,7 @@ class EpisodicEvent(BaseModel):
 class SemanticEntity(BaseModel):
     """An entity in the semantic knowledge graph."""
 
-    id: str
+    id: str = ""
     name: str
     entity_type: str  # person, project, concept, service, hardware
     properties: dict[str, Any] = Field(default_factory=dict)
@@ -241,7 +241,7 @@ class TaskStatus(str, Enum):
 
 
 class Task(BaseModel):
-    id: str
+    id: str = ""
     agent_id: str | None = None
     specialist: SpecialistType = SpecialistType.GENERAL
     description: str
@@ -259,7 +259,7 @@ class Task(BaseModel):
 
 
 class Document(BaseModel):
-    id: str
+    id: str = ""
     source: str
     content: str
     metadata: dict[str, Any] = Field(default_factory=dict)
@@ -303,7 +303,7 @@ class ModelBackend(str, Enum):
 
 
 class ModelInfo(BaseModel):
-    id: str
+    id: str = ""
     name: str
     backend: ModelBackend
     size_bytes: int = 0
@@ -508,7 +508,7 @@ class QueenScene(BaseModel):
 
 
 class QueenProfile(BaseModel):
-    id: str
+    id: str = ""
     name: str
     performer_ref: str = ""
     physical_blueprint: dict[str, Any] = Field(default_factory=dict)

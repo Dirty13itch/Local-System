@@ -110,11 +110,13 @@ class RedisConfig(BaseSettings):
 
     host: str = Field(default="192.168.1.203", alias="REDIS_HOST")
     port: int = Field(default=6379, alias="REDIS_PORT")
-    password: str = Field(default="changeme", alias="REDIS_PASSWORD")
+    password: str = Field(default="", alias="REDIS_PASSWORD")
 
     @property
     def url(self) -> str:
-        return f"redis://:{self.password}@{self.host}:{self.port}/0"
+        if self.password:
+            return f"redis://:{self.password}@{self.host}:{self.port}/0"
+        return f"redis://{self.host}:{self.port}/0"
 
 
 class QdrantConfig(BaseSettings):
@@ -132,7 +134,7 @@ class Neo4jConfig(BaseSettings):
     http_port: int = Field(default=7474, alias="NEO4J_HTTP_PORT")
     bolt_port: int = Field(default=7687, alias="NEO4J_BOLT_PORT")
     user: str = Field(default="neo4j", alias="NEO4J_USER")
-    password: str = Field(default="changeme", alias="NEO4J_PASSWORD")
+    password: str = Field(default="athanor2026", alias="NEO4J_PASSWORD")
 
     @property
     def bolt_url(self) -> str:
@@ -142,7 +144,7 @@ class Neo4jConfig(BaseSettings):
 class RAGConfig(BaseSettings):
     """RAG pipeline configuration — hybrid search."""
 
-    embedding_model: str = Field(default="Qwen3-Embedding-0.6B", alias="EMBEDDING_MODEL")
+    embedding_model: str = Field(default="/models/Qwen3-Embedding-0.6B", alias="EMBEDDING_MODEL")
     embedding_dimensions: int = Field(default=1024, alias="EMBEDDING_DIMENSIONS")
     chunk_size: int = Field(default=512, alias="CHUNK_SIZE")
     chunk_overlap: int = Field(default=64, alias="CHUNK_OVERLAP")
@@ -154,7 +156,7 @@ class MeilisearchConfig(BaseSettings):
 
     host: str = Field(default="192.168.1.203", alias="MEILISEARCH_HOST")
     port: int = Field(default=7700, alias="MEILISEARCH_PORT")
-    key: str = Field(default="changeme", alias="MEILISEARCH_KEY")
+    key: str = Field(default="HJR568l_N9uK55CXrheDIWQOSqK3YtT1IOlLt4xhI7Q", alias="MEILISEARCH_KEY")
 
     @property
     def url(self) -> str:

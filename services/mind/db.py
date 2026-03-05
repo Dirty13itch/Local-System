@@ -18,8 +18,8 @@ from local_system.config import get_settings
 logger = logging.getLogger("mind.db")
 
 SCHEMA_SQL = """
--- Conversations: multi-turn exchanges
-CREATE TABLE IF NOT EXISTS conversations (
+-- MIND conversations: multi-turn exchanges
+CREATE TABLE IF NOT EXISTS mind_conversations (
     id TEXT PRIMARY KEY,
     workspace TEXT DEFAULT 'default',
     title TEXT DEFAULT '',
@@ -28,10 +28,10 @@ CREATE TABLE IF NOT EXISTS conversations (
     updated_at TIMESTAMPTZ DEFAULT NOW()
 );
 
--- Messages within conversations
-CREATE TABLE IF NOT EXISTS messages (
+-- MIND messages within conversations
+CREATE TABLE IF NOT EXISTS mind_messages (
     id TEXT PRIMARY KEY,
-    conversation_id TEXT NOT NULL REFERENCES conversations(id) ON DELETE CASCADE,
+    conversation_id TEXT NOT NULL REFERENCES mind_conversations(id) ON DELETE CASCADE,
     role TEXT NOT NULL,  -- system, user, assistant, tool
     content TEXT NOT NULL DEFAULT '',
     tool_calls JSONB DEFAULT '[]',
@@ -42,12 +42,12 @@ CREATE TABLE IF NOT EXISTS messages (
     latency_ms INT DEFAULT 0,
     created_at TIMESTAMPTZ DEFAULT NOW()
 );
-CREATE INDEX IF NOT EXISTS idx_messages_conv ON messages(conversation_id, created_at);
+CREATE INDEX IF NOT EXISTS idx_mind_messages_conv ON mind_messages(conversation_id, created_at);
 
--- Tasks: agent work items
-CREATE TABLE IF NOT EXISTS tasks (
+-- MIND tasks: agent work items
+CREATE TABLE IF NOT EXISTS mind_tasks (
     id TEXT PRIMARY KEY,
-    conversation_id TEXT REFERENCES conversations(id),
+    conversation_id TEXT REFERENCES mind_conversations(id),
     specialist TEXT DEFAULT 'general',
     description TEXT NOT NULL,
     status TEXT DEFAULT 'pending',
@@ -60,19 +60,19 @@ CREATE TABLE IF NOT EXISTS tasks (
     created_at TIMESTAMPTZ DEFAULT NOW(),
     completed_at TIMESTAMPTZ
 );
-CREATE INDEX IF NOT EXISTS idx_tasks_status ON tasks(status);
+CREATE INDEX IF NOT EXISTS idx_mind_tasks_status ON mind_tasks(status);
 
--- Agent execution logs (for debugging and improvement)
-CREATE TABLE IF NOT EXISTS agent_logs (
+-- MIND agent execution logs (for debugging and improvement)
+CREATE TABLE IF NOT EXISTS mind_agent_logs (
     id SERIAL PRIMARY KEY,
-    task_id TEXT REFERENCES tasks(id),
+    task_id TEXT REFERENCES mind_tasks(id),
     iteration INT NOT NULL,
     action TEXT NOT NULL,  -- 'llm_call', 'tool_exec', 'memory_read', 'decision'
     detail JSONB DEFAULT '{}',
     duration_ms INT DEFAULT 0,
     created_at TIMESTAMPTZ DEFAULT NOW()
 );
-CREATE INDEX IF NOT EXISTS idx_agent_logs_task ON agent_logs(task_id, iteration);
+CREATE INDEX IF NOT EXISTS idx_mind_agent_logs_task ON mind_agent_logs(task_id, iteration);
 """
 
 
@@ -117,7 +117,7 @@ class MindDB:
             return
         async with self._pool.acquire() as conn:
             await conn.execute(
-                "INSERT INTO conversations (id, workspace, model) VALUES ($1, $2, $3) "
+                "INSERT INTO mind_conversations (id, workspace, model) VALUES ($1, $2, $3) "
                 "ON CONFLICT (id) DO UPDATE SET updated_at = NOW()",
                 conv_id, workspace, model,
             )
@@ -127,7 +127,7 @@ class MindDB:
             return None
         async with self._pool.acquire() as conn:
             row = await conn.fetchrow(
-                "SELECT * FROM conversations WHERE id = $1", conv_id
+                "SELECT * FROM mind_conversations WHERE id = $1", conv_id
             )
             return dict(row) if row else None
 
@@ -139,13 +139,13 @@ class MindDB:
         async with self._pool.acquire() as conn:
             if workspace:
                 rows = await conn.fetch(
-                    "SELECT * FROM conversations WHERE workspace = $1 "
+                    "SELECT * FROM mind_conversations WHERE workspace = $1"
                     "ORDER BY updated_at DESC LIMIT $2",
                     workspace, limit,
                 )
             else:
                 rows = await conn.fetch(
-                    "SELECT * FROM conversations ORDER BY updated_at DESC LIMIT $1",
+                    "SELECT * FROM mind_conversations ORDER BY updated_at DESC LIMIT $1",
                     limit,
                 )
             return [dict(r) for r in rows]
@@ -170,7 +170,7 @@ class MindDB:
             return
         async with self._pool.acquire() as conn:
             await conn.execute(
-                "INSERT INTO messages "
+                "INSERT INTO mind_messages"
                 "(id, conversation_id, role, content, tool_calls, tool_call_id, "
                 "model, tokens_in, tokens_out, latency_ms) "
                 "VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)",
@@ -180,7 +180,7 @@ class MindDB:
             )
             # Update conversation timestamp
             await conn.execute(
-                "UPDATE conversations SET updated_at = NOW() WHERE id = $1",
+                "UPDATE mind_conversations SET updated_at = NOW() WHERE id = $1",
                 conversation_id,
             )
 
@@ -191,7 +191,7 @@ class MindDB:
             return []
         async with self._pool.acquire() as conn:
             rows = await conn.fetch(
-                "SELECT * FROM messages WHERE conversation_id = $1 "
+                "SELECT * FROM mind_messages WHERE conversation_id = $1"
                 "ORDER BY created_at ASC LIMIT $2",
                 conversation_id, limit,
             )
@@ -204,7 +204,7 @@ class MindDB:
             return
         async with self._pool.acquire() as conn:
             await conn.execute(
-                "INSERT INTO tasks "
+                "INSERT INTO mind_tasks"
                 "(id, conversation_id, specialist, description, status, agent_id, model, memory_context) "
                 "VALUES ($1, $2, $3, $4, $5, $6, $7, $8) "
                 "ON CONFLICT (id) DO UPDATE SET "
@@ -236,7 +236,7 @@ class MindDB:
         if not sets:
             return
         params.append(task_id)
-        sql = f"UPDATE tasks SET {', '.join(sets)} WHERE id = ${idx}"
+        sql = f"UPDATE mind_tasks SET {', '.join(sets)} WHERE id = ${idx}"
         async with self._pool.acquire() as conn:
             await conn.execute(sql, *params)
 
@@ -244,7 +244,7 @@ class MindDB:
         if not self._pool:
             return None
         async with self._pool.acquire() as conn:
-            row = await conn.fetchrow("SELECT * FROM tasks WHERE id = $1", task_id)
+            row = await conn.fetchrow("SELECT * FROM mind_tasks WHERE id = $1", task_id)
             return dict(row) if row else None
 
     async def list_tasks(
@@ -255,13 +255,13 @@ class MindDB:
         async with self._pool.acquire() as conn:
             if status:
                 rows = await conn.fetch(
-                    "SELECT * FROM tasks WHERE status = $1 "
+                    "SELECT * FROM mind_tasks WHERE status = $1"
                     "ORDER BY created_at DESC LIMIT $2",
                     status, limit,
                 )
             else:
                 rows = await conn.fetch(
-                    "SELECT * FROM tasks ORDER BY created_at DESC LIMIT $1",
+                    "SELECT * FROM mind_tasks ORDER BY created_at DESC LIMIT $1",
                     limit,
                 )
             return [dict(r) for r in rows]
@@ -280,7 +280,7 @@ class MindDB:
             return
         async with self._pool.acquire() as conn:
             await conn.execute(
-                "INSERT INTO agent_logs (task_id, iteration, action, detail, duration_ms) "
+                "INSERT INTO mind_agent_logs (task_id, iteration, action, detail, duration_ms) "
                 "VALUES ($1, $2, $3, $4, $5)",
                 task_id, iteration, action,
                 json.dumps(detail or {}), duration_ms,
@@ -291,7 +291,7 @@ class MindDB:
             return []
         async with self._pool.acquire() as conn:
             rows = await conn.fetch(
-                "SELECT * FROM agent_logs WHERE task_id = $1 ORDER BY iteration, created_at",
+                "SELECT * FROM mind_agent_logs WHERE task_id = $1 ORDER BY iteration, created_at",
                 task_id,
             )
             return [dict(r) for r in rows]
@@ -302,9 +302,9 @@ class MindDB:
         if not self._pool:
             return {"ready": False}
         async with self._pool.acquire() as conn:
-            convs = await conn.fetchval("SELECT count(*) FROM conversations")
-            msgs = await conn.fetchval("SELECT count(*) FROM messages")
-            tasks = await conn.fetchval("SELECT count(*) FROM tasks")
+            convs = await conn.fetchval("SELECT count(*) FROM mind_conversations")
+            msgs = await conn.fetchval("SELECT count(*) FROM mind_messages")
+            tasks = await conn.fetchval("SELECT count(*) FROM mind_tasks")
             return {
                 "ready": True,
                 "conversations": convs,

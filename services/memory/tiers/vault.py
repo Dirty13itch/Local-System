@@ -189,12 +189,13 @@ class VaultTier(BaseTier):
             if filters and "category" in filters:
                 search_filter = {"must": [{"key": "category", "match": {"value": filters["category"]}}]}
 
-            hits = await self._qdrant.search(
+            hits_resp = await self._qdrant.query_points(
                 collection_name=COLLECTION,
-                query_vector=embedding,
+                query=embedding,
                 limit=top_k,
                 query_filter=search_filter,
             )
+            hits = hits_resp.points
             if hits:
                 results = []
                 for hit in hits:

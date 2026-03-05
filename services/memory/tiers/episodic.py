@@ -168,12 +168,13 @@ class EpisodicTier(BaseTier):
             if conditions:
                 search_filter = {"must": conditions}
 
-        hits = await self._qdrant.search(
+        hits_resp = await self._qdrant.query_points(
             collection_name=COLLECTION,
-            query_vector=embedding,
+            query=embedding,
             limit=top_k,
             query_filter=search_filter,
         )
+        hits = hits_resp.points
 
         results = []
         for hit in hits:
