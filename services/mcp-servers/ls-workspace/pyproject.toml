@@ -1,0 +1,12 @@
+[project]
+name = "ls-workspace"
+version = "0.1.0"
+description = "Local-System workspace context MCP server — project state for any coding tool"
+requires-python = ">=3.12"
+dependencies = [
+    "fastmcp>=2.0",
+    "pydantic>=2.0",
+]
+
+[project.scripts]
+ls-workspace = "ls_workspace.server:main"

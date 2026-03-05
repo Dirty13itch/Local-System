@@ -51,6 +51,20 @@ model_list:
     model_info:
       max_tokens: 65536
 
+
+  # --- Reranker: Qwen3-Reranker-0.6B on FOUNDRY ---
+  - model_name: "reranker"
+    litellm_params:
+      model: "openai/reranker"
+      api_base: "http://${FOUNDRY_HOST}:8003/v1"
+      api_key: "not-needed"
+
+  # --- Local: Ollama fallback on DEV ---
+  - model_name: "local"
+    litellm_params:
+      model: "ollama/dolphin-mistral:7b"
+      api_base: "http://192.168.1.189:11434"
+
   # --- OpenAI compatibility aliases ---
   - model_name: "gpt-4"
     litellm_params:

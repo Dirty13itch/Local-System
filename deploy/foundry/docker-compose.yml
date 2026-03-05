@@ -1,13 +1,133 @@
-# FOUNDRY — Heavy Inference Node
-# Specs populated by scripts/discover.sh
+# FOUNDRY — Heavy Inference Node (192.168.1.244)
+# EPYC 7663, 256GB RAM, 5x GPUs
 #
-# vLLM runs as a systemd service (not Docker) for direct GPU access.
-# This compose file is for auxiliary services only.
+# GPU Layout:
+#   GPU 0,1: 2x RTX 5070 Ti 16GB → reasoning (TP=2, 32GB total)
+#   GPU 2:   RTX 4090 24GB       → coding (single GPU)
+#   GPU 3:   RTX 5070 Ti 16GB    → embedding + reranker (shared)
+#   GPU 4:   RTX 5070 Ti 16GB    → SPARE
+#
+# Models served from VAULT NFS: /mnt/vault/models:/models:ro
+#
+# Usage: docker compose up -d
+# Note: Requires NVIDIA Container Toolkit (nvidia-ctk)
 
 services:
-  # Node metrics exporter
+  # --- Inference Models ---
+
+  vllm-reasoning:
+    image: athanor/vllm:custom
+    container_name: vllm-reasoning
+    restart: unless-stopped
+    network_mode: host
+    runtime: nvidia
+    ipc: host
+    ulimits:
+      memlock: -1
+      stack: 67108864
+    environment:
+      - NVIDIA_VISIBLE_DEVICES=0,1
+      - CUDA_DEVICE_ORDER=PCI_BUS_ID
+      - FLASHINFER_DISABLE_VERSION_CHECK=1
+    volumes:
+      - /mnt/vault/models:/models:ro
+    command: >
+      python3 -m vllm.entrypoints.openai.api_server
+      --model /models/Qwen3-32B-AWQ
+      --quantization awq
+      --tensor-parallel-size 2
+      --host 0.0.0.0
+      --port 8000
+      --max-model-len 16384
+      --gpu-memory-utilization 0.90
+      --max-num-seqs 32
+      --enable-auto-tool-choice
+      --tool-call-parser hermes
+      --swap-space 16
+      --enable-sleep-mode
+
+  vllm-coding:
+    image: athanor/vllm:custom
+    container_name: vllm-coding
+    restart: unless-stopped
+    network_mode: host
+    runtime: nvidia
+    ipc: host
+    ulimits:
+      memlock: -1
+      stack: 67108864
+    environment:
+      - NVIDIA_VISIBLE_DEVICES=2
+      - CUDA_DEVICE_ORDER=PCI_BUS_ID
+      - FLASHINFER_DISABLE_VERSION_CHECK=1
+    volumes:
+      - /mnt/vault/models:/models:ro
+    command: >
+      python3 -m vllm.entrypoints.openai.api_server
+      --model /models/Qwen3-32B-AWQ
+      --quantization awq
+      --host 0.0.0.0
+      --port 8002
+      --max-model-len 8192
+      --gpu-memory-utilization 0.92
+      --max-num-seqs 8
+      --enable-auto-tool-choice
+      --tool-call-parser hermes
+      --swap-space 8
+      --enable-sleep-mode
+
+  vllm-embedding:
+    image: nvcr.io/nvidia/vllm:25.12-py3
+    container_name: vllm-embedding
+    restart: unless-stopped
+    network_mode: host
+    runtime: nvidia
+    ipc: host
+    environment:
+      - NVIDIA_VISIBLE_DEVICES=3
+      - CUDA_DEVICE_ORDER=PCI_BUS_ID
+    volumes:
+      - /mnt/vault/models:/models:ro
+    command: >
+      python3 -m vllm.entrypoints.openai.api_server
+      --model /models/Qwen3-Embedding-0.6B
+      --task embedding
+      --host 0.0.0.0
+      --port 8001
+      --max-model-len 8192
+      --gpu-memory-utilization 0.40
+      --max-num-seqs 256
+      --dtype auto
+
+  vllm-reranker:
+    image: nvcr.io/nvidia/vllm:25.12-py3
+    container_name: vllm-reranker
+    restart: unless-stopped
+    network_mode: host
+    runtime: nvidia
+    ipc: host
+    environment:
+      - NVIDIA_VISIBLE_DEVICES=3
+      - CUDA_DEVICE_ORDER=PCI_BUS_ID
+    volumes:
+      - /mnt/vault/models:/models:ro
+    command: >
+      python3 -m vllm.entrypoints.openai.api_server
+      --model /models/Qwen3-Reranker-0.6B
+      --task score
+      --host 0.0.0.0
+      --port 8003
+      --max-model-len 8192
+      --gpu-memory-utilization 0.20
+      --max-num-seqs 64
+      --dtype auto
+      --enable-prefix-caching
+
+  # --- Monitoring ---
+
   node-exporter:
     image: prom/node-exporter:latest
+    container_name: node-exporter
     ports:
       - "9100:9100"
     volumes:
@@ -20,11 +140,12 @@ services:
       - '--collector.filesystem.mount-points-exclude=^/(sys|proc|dev|host|etc)($$|/)'
     restart: unless-stopped
 
-  # NVIDIA GPU metrics
-  nvidia-exporter:
-    image: utkuozdemir/nvidia_gpu_exporter:1.2.0
+  dcgm-exporter:
+    image: nvcr.io/nvidia/k8s/dcgm-exporter:3.3.9-3.6.1-ubuntu22.04
+    container_name: dcgm-exporter
+    runtime: nvidia
+    environment:
+      - NVIDIA_VISIBLE_DEVICES=all
     ports:
-      - "9835:9835"
-    volumes:
-      - /usr/lib/x86_64-linux-gnu/libnvidia-ml.so.1:/usr/lib/x86_64-linux-gnu/libnvidia-ml.so.1:ro
+      - "9400:9400"
     restart: unless-stopped

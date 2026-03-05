@@ -67,6 +67,8 @@ class ServicePorts(BaseSettings):
     vllm_reasoning: int = Field(default=8000)
     vllm_fast: int = Field(default=8000)
     vllm_embedding: int = Field(default=8001)
+    vllm_coding: int = Field(default=8002)
+    vllm_reranker: int = Field(default=8003)
 
 
 class InferenceConfig(BaseSettings):
@@ -80,6 +82,8 @@ class InferenceConfig(BaseSettings):
     vllm_reasoning_host: str = Field(default="http://${FOUNDRY_HOST}:8000", alias="VLLM_REASONING_HOST")
     vllm_fast_host: str = Field(default="http://${WORKSHOP_HOST}:8000", alias="VLLM_FAST_HOST")
     vllm_embedding_host: str = Field(default="http://${FOUNDRY_HOST}:8001", alias="VLLM_EMBEDDING_HOST")
+    vllm_coding_host: str = Field(default="http://${FOUNDRY_HOST}:8002", alias="VLLM_CODING_HOST")
+    vllm_reranker_host: str = Field(default="http://${FOUNDRY_HOST}:8003", alias="VLLM_RERANKER_HOST")
 
 
 class DatabaseConfig(BaseSettings):

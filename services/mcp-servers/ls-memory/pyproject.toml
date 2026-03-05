@@ -1,0 +1,13 @@
+[project]
+name = "ls-memory"
+version = "0.1.0"
+description = "Local-System shared memory MCP server — enables tool interchangeability"
+requires-python = ">=3.12"
+dependencies = [
+    "fastmcp>=2.0",
+    "redis>=5.0",
+    "pydantic>=2.0",
+]
+
+[project.scripts]
+ls-memory = "ls_memory.server:main"
