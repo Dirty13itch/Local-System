@@ -542,3 +542,11 @@ async def list_watchers():
         }
         for w in _watchers
     ]
+
+
+@app.get("/metrics")
+async def prometheus_metrics():
+    """Prometheus metrics endpoint."""
+    from local_system.metrics import metrics_response, SERVICE_INFO
+    SERVICE_INFO.labels(service="perception", version="0.1.0", node="dev").set(1)
+    return metrics_response()
