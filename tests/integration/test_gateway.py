@@ -34,7 +34,7 @@ async def test_cluster_health(gateway_url: str):
         resp = await client.get(f"{gateway_url}/health/cluster")
         assert resp.status_code == 200
         data = resp.json()
-        assert "inference" in data
+        assert "litellm" in data
         assert "mind" in data
-        assert "rag" in data
         assert "memory" in data
+        assert "perception" in data

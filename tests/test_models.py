@@ -37,7 +37,7 @@ def test_chat_request_defaults():
     req = ChatRequest(
         messages=[Message(role=Role.USER, content="test")],
     )
-    assert req.model == "llama-70b"
+    assert req.model == "auto"
     assert req.temperature == 0.7
     assert req.max_tokens == 4096
     assert req.stream is False
