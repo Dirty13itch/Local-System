@@ -31,7 +31,7 @@ FOUNDRY_HOST = os.environ.get("FOUNDRY_HOST", "192.168.1.244")
 WORKSHOP_HOST = os.environ.get("WORKSHOP_HOST", "192.168.1.225")
 DEV_HOST = os.environ.get("DEV_HOST", "192.168.1.189")
 LITELLM_URL = os.environ.get("LITELLM_URL", "http://192.168.1.203:4000")
-LITELLM_KEY = os.environ.get("LITELLM_KEY", "sk-athanor-litellm-2026")
+LITELLM_KEY = os.environ.get("LITELLM_KEY", "not-set")
 REQUEST_TIMEOUT = float(os.environ.get("INFERENCE_TIMEOUT", "120"))
 
 # --- Direct routing table ---

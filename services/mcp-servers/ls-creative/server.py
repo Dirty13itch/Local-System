@@ -23,7 +23,7 @@ from fastmcp import FastMCP
 DEV_HOST = os.environ.get("DEV_HOST", "192.168.1.189")
 GATEWAY_PORT = int(os.environ.get("GATEWAY_PORT", "8700"))
 GATEWAY_URL = f"http://{DEV_HOST}:{GATEWAY_PORT}"
-API_KEY = os.environ.get("GATEWAY_API_KEY", "sk-athanor-gateway-2026")
+API_KEY = os.environ.get("GATEWAY_API_KEY", "not-set")
 REQUEST_TIMEOUT = float(os.environ.get("CREATIVE_TIMEOUT", "120"))
 
 _client: httpx.AsyncClient | None = None

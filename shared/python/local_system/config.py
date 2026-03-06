@@ -77,7 +77,7 @@ class InferenceConfig(BaseSettings):
 
     # LiteLLM is the single entry point for all inference
     litellm_host: str = Field(default="http://192.168.1.203:4000", alias="LITELLM_HOST")
-    litellm_key: str = Field(default="sk-athanor-litellm-2026", alias="LITELLM_KEY")
+    litellm_key: str = Field(default="not-set", alias="LITELLM_KEY")
 
     # vLLM instances (ports set after GPU discovery)
     vllm_reasoning_host: str = Field(default="http://192.168.1.244:8000", alias="VLLM_REASONING_HOST")

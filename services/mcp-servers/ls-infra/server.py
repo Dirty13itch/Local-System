@@ -28,7 +28,7 @@ WORKSHOP_HOST = os.environ.get("WORKSHOP_HOST", "192.168.1.225")
 VAULT_HOST = os.environ.get("VAULT_HOST", "192.168.1.203")
 DEV_HOST = os.environ.get("DEV_HOST", "192.168.1.189")
 LITELLM_URL = os.environ.get("LITELLM_URL", f"http://{VAULT_HOST}:4000")
-LITELLM_KEY = os.environ.get("LITELLM_KEY", "sk-athanor-litellm-2026")
+LITELLM_KEY = os.environ.get("LITELLM_KEY", "not-set")
 
 MEMORY_PORT = int(os.environ.get("MEMORY_PORT", "8720"))
 GATEWAY_PORT = int(os.environ.get("GATEWAY_PORT", "8700"))
