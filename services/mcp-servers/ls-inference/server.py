@@ -7,10 +7,10 @@ for cloud API models when available.
 
 Available model aliases:
   "reasoning"  -> Qwen3-32B-AWQ on FOUNDRY TP=2 (GPUs 0,1) :8000
-  "coding"     -> Qwen3-32B-AWQ on FOUNDRY 4090 (GPU 2) :8002
+  "coding"     -> GLM-4.7-Flash-GPTQ on FOUNDRY 4090 (GPU 2) :8002
   "fast"       -> Qwen3-14B FP8 on WORKSHOP (5090) :8000
-  "embedding"  -> Qwen3-Embedding-0.6B on FOUNDRY (GPU 3) :8001
-  "reranker"   -> Qwen3-Reranker-0.6B on FOUNDRY (GPU 3) :8003
+  "embedding"  -> Qwen3-Embedding-0.6B on DEV :8001
+  "reranker"   -> Qwen3-Reranker-0.6B on DEV :8003
   "local"      -> Ollama on DEV :11434
 
 Framework: FastMCP 2.0
@@ -30,7 +30,7 @@ from fastmcp import FastMCP
 FOUNDRY_HOST = os.environ.get("FOUNDRY_HOST", "192.168.1.244")
 WORKSHOP_HOST = os.environ.get("WORKSHOP_HOST", "192.168.1.225")
 DEV_HOST = os.environ.get("DEV_HOST", "192.168.1.189")
-LITELLM_URL = os.environ.get("LITELLM_URL", "http://192.168.1.203:4000")
+LITELLM_URL = os.environ.get("LITELLM_URL", os.environ.get("LITELLM_HOST", "http://192.168.1.203:4000"))
 LITELLM_KEY = os.environ.get("LITELLM_KEY", "not-set")
 REQUEST_TIMEOUT = float(os.environ.get("INFERENCE_TIMEOUT", "120"))
 
@@ -46,9 +46,9 @@ MODEL_ROUTES: dict[str, dict[str, Any]] = {
     },
     "coding": {
         "base_url": f"http://{FOUNDRY_HOST}:8002/v1",
-        "model_id": "/models/Qwen3-32B-AWQ",
+        "model_id": "glm-4.7-flash-gptq",
         "type": "vllm",
-        "description": "Qwen3-32B-AWQ on FOUNDRY 4090 (coding tasks)",
+        "description": "GLM-4.7-Flash-GPTQ on FOUNDRY 4090 (coding tasks)",
     },
     "fast": {
         "base_url": f"http://{WORKSHOP_HOST}:8000/v1",
@@ -57,16 +57,16 @@ MODEL_ROUTES: dict[str, dict[str, Any]] = {
         "description": "Qwen3-14B FP8 on WORKSHOP 5090 (quick tasks)",
     },
     "embedding": {
-        "base_url": f"http://{FOUNDRY_HOST}:8001/v1",
-        "model_id": "/models/Qwen3-Embedding-0.6B",
+        "base_url": f"http://{DEV_HOST}:8001/v1",
+        "model_id": "Qwen3-Embedding-0.6B",
         "type": "vllm",
-        "description": "Qwen3-Embedding-0.6B on FOUNDRY (vector embeddings)",
+        "description": "Qwen3-Embedding-0.6B on DEV (vector embeddings)",
     },
     "reranker": {
-        "base_url": f"http://{FOUNDRY_HOST}:8003/v1",
-        "model_id": "/models/Qwen3-Reranker-0.6B",
+        "base_url": f"http://{DEV_HOST}:8003/v1",
+        "model_id": "Qwen3-Reranker-0.6B",
         "type": "vllm",
-        "description": "Qwen3-Reranker-0.6B on FOUNDRY (search reranking)",
+        "description": "Qwen3-Reranker-0.6B on DEV (search reranking)",
     },
     "local": {
         "base_url": f"http://{DEV_HOST}:11434/v1",

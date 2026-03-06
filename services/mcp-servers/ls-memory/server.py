@@ -29,7 +29,16 @@ from pydantic import BaseModel, Field
 
 # --- Configuration ---
 
-REDIS_URL = os.environ.get("REDIS_URL", "redis://192.168.1.203:6379/1")
+# Construct Redis URL from individual env vars (password-aware)
+_redis_host = os.environ.get("REDIS_HOST", "192.168.1.203")
+_redis_port = os.environ.get("REDIS_PORT", "6379")
+_redis_password = os.environ.get("REDIS_PASSWORD", "")
+if os.environ.get("REDIS_URL"):
+    REDIS_URL = os.environ["REDIS_URL"]
+elif _redis_password:
+    REDIS_URL = f"redis://:{_redis_password}@{_redis_host}:{_redis_port}/1"
+else:
+    REDIS_URL = f"redis://{_redis_host}:{_redis_port}/1"
 MEMORY_API = os.environ.get("MEMORY_API", "http://192.168.1.189:8720")
 PERCEPTION_API = os.environ.get("PERCEPTION_API", "http://192.168.1.189:8730")
 KEY_PREFIX = "ls:memory"

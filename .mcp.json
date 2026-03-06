@@ -4,49 +4,49 @@
       "command": "ssh",
       "args": [
         "shaun@192.168.1.189",
-        "cd ~/dev/local-system-v4/services/mcp-servers/ls-inference && ~/.local/bin/uv run server.py"
+        "set -a && source ~/dev/local-system-v4/.env && set +a && cd ~/dev/local-system-v4/services/mcp-servers/ls-inference && ~/.local/bin/uv run server.py"
       ]
     },
     "ls-memory": {
       "command": "ssh",
       "args": [
         "shaun@192.168.1.189",
-        "cd ~/dev/local-system-v4/services/mcp-servers/ls-memory && ~/.local/bin/uv run server.py"
+        "set -a && source ~/dev/local-system-v4/.env && set +a && cd ~/dev/local-system-v4/services/mcp-servers/ls-memory && ~/.local/bin/uv run server.py"
       ]
     },
     "ls-knowledge": {
       "command": "ssh",
       "args": [
         "shaun@192.168.1.189",
-        "cd ~/dev/local-system-v4/services/mcp-servers/ls-knowledge && ~/.local/bin/uv run server.py"
+        "set -a && source ~/dev/local-system-v4/.env && set +a && cd ~/dev/local-system-v4/services/mcp-servers/ls-knowledge && ~/.local/bin/uv run server.py"
       ]
     },
     "ls-workspace": {
       "command": "ssh",
       "args": [
         "shaun@192.168.1.189",
-        "cd ~/dev/local-system-v4/services/mcp-servers/ls-workspace && ~/.local/bin/uv run server.py"
+        "set -a && source ~/dev/local-system-v4/.env && set +a && cd ~/dev/local-system-v4/services/mcp-servers/ls-workspace && ~/.local/bin/uv run server.py"
       ]
     },
     "ls-infra": {
       "command": "ssh",
       "args": [
         "shaun@192.168.1.189",
-        "cd ~/dev/local-system-v4/services/mcp-servers/ls-infra && ~/.local/bin/uv run server.py"
+        "set -a && source ~/dev/local-system-v4/.env && set +a && cd ~/dev/local-system-v4/services/mcp-servers/ls-infra && ~/.local/bin/uv run server.py"
       ]
     },
     "ls-creative": {
       "command": "ssh",
       "args": [
         "shaun@192.168.1.189",
-        "cd ~/dev/local-system-v4/services/mcp-servers/ls-creative && ~/.local/bin/uv run server.py"
+        "set -a && source ~/dev/local-system-v4/.env && set +a && cd ~/dev/local-system-v4/services/mcp-servers/ls-creative && ~/.local/bin/uv run server.py"
       ]
     },
     "ls-tools": {
       "command": "ssh",
       "args": [
         "shaun@192.168.1.189",
-        "cd ~/dev/local-system-v4/services/mcp-servers/ls-tools && ~/.local/bin/uv run server.py"
+        "set -a && source ~/dev/local-system-v4/.env && set +a && cd ~/dev/local-system-v4/services/mcp-servers/ls-tools && ~/.local/bin/uv run server.py"
       ]
     }
   }
