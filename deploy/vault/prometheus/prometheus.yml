@@ -1,74 +1,124 @@
-# Prometheus Configuration — Local-System Cluster
-# Scraped every 15s. Services expose /metrics via prometheus-fastapi-instrumentator.
+# Prometheus Configuration — Local-System Cluster Monitoring
+# Updated: 2026-03-06 — synced with live deployment (19/19 targets UP)
 
 global:
   scrape_interval: 15s
   evaluation_interval: 15s
 
+rule_files:
+  - /etc/prometheus/alert_rules.yml
+
 scrape_configs:
-  # --- Node Metrics (node_exporter) ---
+  # --- Node Metrics (node_exporter on all Linux nodes) ---
   - job_name: 'node-exporter'
     static_configs:
-      - targets:
-          - '192.168.1.244:9100'   # FOUNDRY
-          - '192.168.1.225:9100'   # WORKSHOP
-          - '192.168.1.189:9100'   # DEV
+      - targets: ['192.168.1.244:9100']
         labels:
-          cluster: 'local-system'
+          node: 'foundry'
+      - targets: ['192.168.1.225:9100']
+        labels:
+          node: 'workshop'
+      - targets: ['192.168.1.189:9100']
+        labels:
+          node: 'dev'
+      - targets: ['192.168.1.203:9100']
+        labels:
+          node: 'vault'
 
-  # --- GPU Metrics (nvidia-smi-exporter) ---
-  - job_name: 'nvidia-gpu'
+  # --- GPU Metrics (DCGM exporter — port 9400, NOT 9835) ---
+  - job_name: 'dcgm-exporter'
     static_configs:
-      - targets:
-          - '192.168.1.244:9835'   # FOUNDRY (5x GPUs)
-          - '192.168.1.225:9835'   # WORKSHOP (RTX 5090)
+      - targets: ['192.168.1.244:9400']
         labels:
-          cluster: 'local-system'
+          node: 'foundry'
+      - targets: ['192.168.1.225:9400']
+        labels:
+          node: 'workshop'
 
-  # --- Core Services (on DEV) ---
+  # --- Core Services (systemd on DEV) ---
   - job_name: 'gateway'
     static_configs:
       - targets: ['192.168.1.189:8700']
+        labels:
+          node: 'dev'
 
   - job_name: 'memory'
     static_configs:
       - targets: ['192.168.1.189:8720']
+        labels:
+          node: 'dev'
 
   - job_name: 'mind'
     static_configs:
       - targets: ['192.168.1.189:8710']
+        labels:
+          node: 'dev'
 
   - job_name: 'perception'
     static_configs:
       - targets: ['192.168.1.189:8730']
+        labels:
+          node: 'dev'
 
-  # --- Inference ---
+  # --- Inference (vLLM + LiteLLM) ---
   - job_name: 'litellm'
+    metrics_path: '/metrics/'
     static_configs:
       - targets: ['192.168.1.203:4000']
+        labels:
+          node: 'vault'
 
   - job_name: 'vllm-reasoning'
     metrics_path: '/metrics'
     static_configs:
       - targets: ['192.168.1.244:8000']
+        labels:
+          model: 'reasoning'
+          node: 'foundry'
 
   - job_name: 'vllm-coding'
     metrics_path: '/metrics'
     static_configs:
       - targets: ['192.168.1.244:8002']
+        labels:
+          model: 'coding'
+          node: 'foundry'
+
+  - job_name: 'vllm-creative'
+    metrics_path: '/metrics'
+    static_configs:
+      - targets: ['192.168.1.244:8004']
+        labels:
+          model: 'creative'
+          node: 'foundry'
 
   - job_name: 'vllm-fast'
     metrics_path: '/metrics'
     static_configs:
       - targets: ['192.168.1.225:8000']
+        labels:
+          model: 'fast'
+          node: 'workshop'
 
   - job_name: 'vllm-embedding'
     metrics_path: '/metrics'
     static_configs:
       - targets: ['192.168.1.189:8001']
+        labels:
+          model: 'embedding'
+          node: 'dev'
 
-  # --- Databases (on VAULT) ---
+  # --- Container Metrics ---
+  - job_name: 'cadvisor'
+    static_configs:
+      - targets: ['192.168.1.203:9880']
+        labels:
+          node: 'vault'
+
+  # --- Databases ---
   - job_name: 'qdrant'
     metrics_path: '/metrics'
     static_configs:
       - targets: ['192.168.1.203:6333']
+        labels:
+          node: 'vault'
