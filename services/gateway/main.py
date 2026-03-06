@@ -34,6 +34,7 @@ from local_system.config import get_settings
 from local_system.utils import setup_logging
 
 from .auto_gen import auto_gen
+from .scheduler import gen_scheduler
 
 settings = get_settings()
 logger = setup_logging("gateway", settings)
@@ -58,9 +59,14 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     auto_gen.comfyui_url = COMFYUI_URL
     auto_gen.start_scanner()
 
+    # Start auto-generation scheduler (creates drops on a timer)
+    gen_scheduler.load_config()
+    gen_scheduler.start()
+
     yield
 
-    auto_gen.stop_scanner()
+    gen_scheduler.stop()
+    await auto_gen.stop_scanner()
     await app.state.http_client.aclose()
     logger.info("Gateway stopped")
 

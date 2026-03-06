@@ -6,9 +6,9 @@ needed for autonomous operation decisions.
 
 Nodes:
   FOUNDRY (192.168.1.244) — 5 GPUs, vLLM inference
-  WORKSHOP (192.168.1.225) — RTX 5090, vLLM fast
-  VAULT (192.168.1.203)   — 26 containers, all databases
-  DEV (192.168.1.189)     — Application services
+  WORKSHOP (192.168.1.225) — 2 GPUs, vLLM fast + ComfyUI
+  VAULT (192.168.1.203)   — 15+ containers, all databases
+  DEV (192.168.1.189)     — Application services + embedding/reranker
 
 Framework: FastMCP 2.0
 Transport: stdio (over SSH from DESK/DEV)
@@ -32,7 +32,16 @@ LITELLM_KEY = os.environ.get("LITELLM_KEY", "not-set")
 
 MEMORY_PORT = int(os.environ.get("MEMORY_PORT", "8720"))
 GATEWAY_PORT = int(os.environ.get("GATEWAY_PORT", "8700"))
-ORCHESTRATOR_PORT = int(os.environ.get("ORCHESTRATOR_PORT", "8703"))
+
+_http_client: httpx.AsyncClient | None = None
+
+
+async def _get_client() -> httpx.AsyncClient:
+    """Get or create the shared HTTP client."""
+    global _http_client
+    if _http_client is None or _http_client.is_closed:
+        _http_client = httpx.AsyncClient(timeout=httpx.Timeout(10.0))
+    return _http_client
 
 # --- MCP Server ---
 
@@ -56,14 +65,15 @@ async def cluster_health() -> dict:
         "inference": {
             "reasoning (FOUNDRY:8000)": f"http://{FOUNDRY_HOST}:8000/health",
             "coding (FOUNDRY:8002)": f"http://{FOUNDRY_HOST}:8002/health",
-            "embedding (FOUNDRY:8001)": f"http://{FOUNDRY_HOST}:8001/health",
-            "reranker (FOUNDRY:8003)": f"http://{FOUNDRY_HOST}:8003/health",
+            "creative (FOUNDRY:8004)": f"http://{FOUNDRY_HOST}:8004/health",
             "fast (WORKSHOP:8000)": f"http://{WORKSHOP_HOST}:8000/health",
+            "embedding (DEV:8001)": f"http://{DEV_HOST}:8001/health",
+            "reranker (DEV:8003)": f"http://{DEV_HOST}:8003/health",
         },
         "services": {
             "litellm (VAULT:4000)": f"{LITELLM_URL}/health",
             "gateway (DEV:8700)": f"http://{DEV_HOST}:{GATEWAY_PORT}/health",
-            "memory (VAULT:8720)": f"http://{VAULT_HOST}:{MEMORY_PORT}/health",
+            "memory (DEV:8720)": f"http://{DEV_HOST}:{MEMORY_PORT}/health",
             "mind (DEV:8710)": f"http://{DEV_HOST}:8710/health",
         },
         "databases": {
@@ -74,18 +84,18 @@ async def cluster_health() -> dict:
     }
 
     results: dict = {}
-    async with httpx.AsyncClient(timeout=5.0) as client:
-        for category, endpoints in checks.items():
-            results[category] = {}
-            for name, url in endpoints.items():
-                try:
-                    headers = {}
-                    if "litellm" in name:
-                        headers["Authorization"] = f"Bearer {LITELLM_KEY}"
-                    resp = await client.get(url, headers=headers)
-                    results[category][name] = "healthy" if resp.status_code == 200 else f"unhealthy ({resp.status_code})"
-                except Exception:
-                    results[category][name] = "unreachable"
+    client = await _get_client()
+    for category, endpoints in checks.items():
+        results[category] = {}
+        for name, url in endpoints.items():
+            try:
+                headers = {}
+                if "litellm" in name:
+                    headers["Authorization"] = f"Bearer {LITELLM_KEY}"
+                resp = await client.get(url, headers=headers)
+                results[category][name] = "healthy" if resp.status_code == 200 else f"unhealthy ({resp.status_code})"
+            except Exception:
+                results[category][name] = "unreachable"
 
     return results
 
@@ -95,16 +105,18 @@ async def gpu_status() -> list[dict]:
     """Check GPU utilization and memory across FOUNDRY and WORKSHOP.
 
     Shows which GPUs are loaded, memory usage, and running models.
-    Requires SSH access to FOUNDRY.
+    Requires SSH access to FOUNDRY and WORKSHOP.
     """
     results = []
+    nvidia_smi_cmd = (
+        "nvidia-smi --query-gpu=index,name,memory.used,memory.total,utilization.gpu,temperature.gpu "
+        "--format=csv,noheader,nounits"
+    )
 
     # Check FOUNDRY GPUs via nvidia-smi over SSH
     try:
         output = subprocess.run(
-            ["ssh", f"athanor@{FOUNDRY_HOST}",
-             "nvidia-smi --query-gpu=index,name,memory.used,memory.total,utilization.gpu,temperature.gpu "
-             "--format=csv,noheader,nounits"],
+            ["ssh", f"athanor@{FOUNDRY_HOST}", nvidia_smi_cmd],
             capture_output=True, text=True, timeout=10,
         )
         for line in output.stdout.strip().splitlines():
@@ -122,19 +134,26 @@ async def gpu_status() -> list[dict]:
     except Exception as e:
         results.append({"node": "FOUNDRY", "error": str(e)})
 
-    # WORKSHOP has a single GPU — check via vLLM health
+    # Check WORKSHOP GPUs via nvidia-smi over SSH
     try:
-        async with httpx.AsyncClient(timeout=5.0) as client:
-            resp = await client.get(f"http://{WORKSHOP_HOST}:8000/health")
-            results.append({
-                "node": "WORKSHOP",
-                "gpu_index": 0,
-                "name": "RTX 5090",
-                "status": "healthy" if resp.status_code == 200 else "unhealthy",
-                "model": "Qwen3-14B FP8",
-            })
-    except Exception:
-        results.append({"node": "WORKSHOP", "gpu_index": 0, "status": "unreachable"})
+        output = subprocess.run(
+            ["ssh", f"shaun@{WORKSHOP_HOST}", nvidia_smi_cmd],
+            capture_output=True, text=True, timeout=10,
+        )
+        for line in output.stdout.strip().splitlines():
+            parts = [p.strip() for p in line.split(",")]
+            if len(parts) >= 6:
+                results.append({
+                    "node": "WORKSHOP",
+                    "gpu_index": int(parts[0]),
+                    "name": parts[1],
+                    "memory_used_mb": int(parts[2]),
+                    "memory_total_mb": int(parts[3]),
+                    "utilization_pct": int(parts[4]),
+                    "temperature_c": int(parts[5]),
+                })
+    except Exception as e:
+        results.append({"node": "WORKSHOP", "error": str(e)})
 
     return results
 
@@ -146,26 +165,26 @@ async def litellm_models() -> dict:
     Shows both local (free) and cloud (paid) model aliases,
     their routing, and current health.
     """
-    async with httpx.AsyncClient(timeout=10.0) as client:
-        try:
-            resp = await client.get(
-                f"{LITELLM_URL}/v1/models",
-                headers={"Authorization": f"Bearer {LITELLM_KEY}"},
-            )
-            resp.raise_for_status()
-            models = resp.json()
-        except Exception as e:
-            return {"error": f"LiteLLM unreachable: {e}"}
+    client = await _get_client()
+    try:
+        resp = await client.get(
+            f"{LITELLM_URL}/v1/models",
+            headers={"Authorization": f"Bearer {LITELLM_KEY}"},
+        )
+        resp.raise_for_status()
+        models = resp.json()
+    except Exception as e:
+        return {"error": f"LiteLLM unreachable: {e}"}
 
-        try:
-            health_resp = await client.get(
-                f"{LITELLM_URL}/health",
-                headers={"Authorization": f"Bearer {LITELLM_KEY}"},
-            )
-            health_resp.raise_for_status()
-            health = health_resp.json()
-        except Exception:
-            health = {}
+    try:
+        health_resp = await client.get(
+            f"{LITELLM_URL}/health",
+            headers={"Authorization": f"Bearer {LITELLM_KEY}"},
+        )
+        health_resp.raise_for_status()
+        health = health_resp.json()
+    except Exception:
+        health = {}
 
     return {"models": models, "health": health}
 
@@ -183,7 +202,7 @@ async def service_logs(
     """
     try:
         output = subprocess.run(
-            ["journalctl", "-u", f"ls-{service}", "-n", str(lines), "--no-pager"],
+            ["journalctl", "-u", f"local-system-{service}", "-n", str(lines), "--no-pager"],
             capture_output=True, text=True, timeout=10,
         )
         if output.returncode == 0 and output.stdout.strip():

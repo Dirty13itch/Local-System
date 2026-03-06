@@ -11,7 +11,7 @@ from typing import TYPE_CHECKING
 
 import httpx
 from fastapi import APIRouter, HTTPException, Request, WebSocket, WebSocketDisconnect
-from fastapi.responses import StreamingResponse
+from fastapi.responses import FileResponse, StreamingResponse
 
 from local_system.config import get_settings
 from local_system.models import (
@@ -29,6 +29,8 @@ from local_system.models import (
 from local_system.utils import setup_logging
 
 from ..auto_gen import auto_gen, generate_prompts_llm, DROPS_DIR, REFS_DIR, OUTPUT_DIR
+from ..feedback import feedback_manager
+from ..scheduler import gen_scheduler
 from ..pipelines import (
     PIPELINE_PRESETS,
     flux_faceid,
@@ -46,9 +48,8 @@ logger = setup_logging("gateway.generate", settings)
 
 router = APIRouter(tags=["generate"])
 
-# ComfyUI on DEV node
-_dev_host = settings.network.dev
-COMFYUI_URL = os.environ.get("COMFYUI_URL", f"http://{_dev_host}:8188")
+# ComfyUI on WORKSHOP node
+COMFYUI_URL = os.environ.get("COMFYUI_URL", f"http://{settings.network.workshop}:8188")
 
 # Performer data path — on VAULT NFS mount
 PERFORMERS_JSON = os.environ.get("PERFORMERS_JSON", "/mnt/vault/data/performers.json")
@@ -236,12 +237,29 @@ async def generation_status(request: Request) -> GenerationStatus:
     except Exception:
         running = pending = 0
 
+    # Query ComfyUI system stats for real GPU VRAM info
+    vram_used = 0
+    vram_total = 0
+    try:
+        sys_resp = await client.get(f"{COMFYUI_URL}/system_stats", timeout=5.0)
+        sys_data = sys_resp.json()
+        devices = sys_data.get("devices", [])
+        if devices:
+            # Sum all CUDA devices (ComfyUI reports in bytes)
+            for dev in devices:
+                vram_total += dev.get("vram_total", 0)
+                vram_used += dev.get("vram_total", 0) - dev.get("vram_free", 0)
+            vram_used = vram_used // (1024 * 1024)
+            vram_total = vram_total // (1024 * 1024)
+    except Exception:
+        pass
+
     return GenerationStatus(
         active_service="comfyui",
         queue_running=running,
         queue_pending=pending,
-        gpu_vram_used_mb=0,
-        gpu_vram_total_mb=16384,
+        gpu_vram_used_mb=vram_used,
+        gpu_vram_total_mb=vram_total,
     )
 
 
@@ -597,7 +615,7 @@ async def get_drop_images(name: str) -> list[str]:
 
 
 @router.get("/v1/generate/drops/{name}/image/{filename}")
-async def serve_drop_image(name: str, filename: str) -> StreamingResponse:
+async def serve_drop_image(name: str, filename: str) -> FileResponse:
     """Serve a generated image from the output folder."""
     image_path = OUTPUT_DIR / name / filename
     if not image_path.exists():
@@ -605,15 +623,15 @@ async def serve_drop_image(name: str, filename: str) -> StreamingResponse:
 
     ext = image_path.suffix.lower()
     content_types = {".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".png": "image/png", ".webp": "image/webp"}
-    return StreamingResponse(
-        open(image_path, "rb"),
+    return FileResponse(
+        path=image_path,
         media_type=content_types.get(ext, "application/octet-stream"),
         headers={"Cache-Control": "public, max-age=86400"},
     )
 
 
 @router.get("/v1/generate/drops/{name}/ref/{filename}")
-async def serve_drop_ref(name: str, filename: str) -> StreamingResponse:
+async def serve_drop_ref(name: str, filename: str) -> FileResponse:
     """Serve a reference image from the refs folder."""
     image_path = REFS_DIR / name / filename
     if not image_path.exists():
@@ -621,8 +639,8 @@ async def serve_drop_ref(name: str, filename: str) -> StreamingResponse:
 
     ext = image_path.suffix.lower()
     content_types = {".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".png": "image/png", ".webp": "image/webp"}
-    return StreamingResponse(
-        open(image_path, "rb"),
+    return FileResponse(
+        path=image_path,
         media_type=content_types.get(ext, "application/octet-stream"),
         headers={"Cache-Control": "public, max-age=86400"},
     )
@@ -646,6 +664,20 @@ async def gallery_data() -> dict:
             continue
 
         name = subject_dir.name
+
+        # Load manifest first — it contains the actual pipeline used
+        manifest = {}
+        manifest_path = REFS_DIR / name / "manifest.json"
+        if manifest_path.exists():
+            try:
+                manifest = _json.loads(manifest_path.read_text())
+            except Exception:
+                pass
+
+        # Determine pipeline from manifest (accurate), not from filename
+        pipeline = manifest.get("pipeline", "flux")
+        identity = manifest.get("identity_method", "unknown")
+
         images = []
         for f in sorted(subject_dir.iterdir()):
             if f.suffix.lower() in {".jpg", ".jpeg", ".png", ".webp"}:
@@ -655,20 +687,12 @@ async def gallery_data() -> dict:
                     "url": f"/v1/generate/drops/{name}/image/{f.name}",
                     "size_bytes": stat.st_size,
                     "created": stat.st_mtime,
-                    "pipeline": "faceid" if "faceid" in f.name else "flux",
+                    "pipeline": pipeline,
+                    "identity_method": identity,
                 })
 
         if not images:
             continue
-
-        # Load manifest for metadata
-        manifest = {}
-        manifest_path = REFS_DIR / name / "manifest.json"
-        if manifest_path.exists():
-            try:
-                manifest = _json.loads(manifest_path.read_text())
-            except Exception:
-                pass
 
         # Check drop status
         drop_dir = DROPS_DIR / name
@@ -691,14 +715,24 @@ async def gallery_data() -> dict:
                         "url": f"/v1/generate/drops/{name}/ref/{f.name}",
                     })
 
+        # Read prompts — new manifests use "prompts" (list), old ones used "prompt_used" (str)
+        prompts = manifest.get("prompts", [])
+        if not prompts:
+            prompt_used = manifest.get("prompt_used", "")
+            if prompt_used:
+                prompts = [prompt_used]
+
         subjects.append({
             "name": name,
             "status": status,
             "image_count": len(images),
             "images": images,
             "refs": refs,
-            "prompts": manifest.get("prompts", []),
+            "prompts": prompts,
             "context": manifest.get("context", ""),
+            "pipeline": pipeline,
+            "identity_method": identity,
+            "processed_at": manifest.get("processed_at", ""),
             "latest": max(img["created"] for img in images) if images else 0,
         })
 
@@ -706,7 +740,127 @@ async def gallery_data() -> dict:
     subjects.sort(key=lambda s: s["latest"], reverse=True)
     total = sum(s["image_count"] for s in subjects)
 
-    return {"subjects": subjects, "total_images": total}
+    # Include ratings map so gallery can render rating state per-image
+    ratings_map = feedback_manager.get_all_ratings_map()
+
+    return {
+        "subjects": subjects,
+        "total_images": total,
+        "ratings": ratings_map,
+        "feedback_summary": feedback_manager.summary(),
+    }
+
+
+# ─── Feedback & Rating Endpoints ─────────────────────────────────────────
+
+
+@router.post("/v1/generate/feedback/rate")
+async def rate_image(request: Request) -> dict:
+    """Rate a generated image as good or bad.
+
+    Body: { subject, filename, rating: "good"|"bad", prompt?: str, notes?: str }
+    """
+    body = await request.json()
+    subject = body.get("subject", "")
+    filename = body.get("filename", "")
+    rating = body.get("rating", "")
+
+    if not subject or not filename:
+        raise HTTPException(status_code=400, detail="'subject' and 'filename' are required")
+    if rating not in ("good", "bad"):
+        raise HTTPException(status_code=400, detail="'rating' must be 'good' or 'bad'")
+
+    entry = feedback_manager.rate_image(
+        subject=subject,
+        filename=filename,
+        rating=rating,
+        prompt=body.get("prompt", ""),
+        notes=body.get("notes", ""),
+    )
+    return {
+        "ok": True,
+        "rating": rating,
+        "subject": subject,
+        "filename": filename,
+        "summary": feedback_manager.summary(),
+    }
+
+
+@router.delete("/v1/generate/feedback/rate")
+async def unrate_image(request: Request) -> dict:
+    """Remove a rating from an image.
+
+    Body: { subject, filename }
+    """
+    body = await request.json()
+    subject = body.get("subject", "")
+    filename = body.get("filename", "")
+
+    if not subject or not filename:
+        raise HTTPException(status_code=400, detail="'subject' and 'filename' are required")
+
+    removed = feedback_manager.remove_rating(subject, filename)
+    return {"ok": removed, "subject": subject, "filename": filename}
+
+
+@router.get("/v1/generate/feedback/ratings")
+async def get_ratings(subject: str = "", rating: str = "") -> dict:
+    """Get all ratings, optionally filtered by subject and/or rating value."""
+    ratings = feedback_manager.get_ratings(
+        subject=subject or None,
+        rating_filter=rating or None,
+    )
+    return {"ratings": ratings, "count": len(ratings), "summary": feedback_manager.summary()}
+
+
+@router.get("/v1/generate/feedback/preferences")
+async def get_preferences() -> dict:
+    """Get current style preferences."""
+    return {
+        "preferences": feedback_manager.get_preferences(),
+        "summary": feedback_manager.summary(),
+    }
+
+
+@router.put("/v1/generate/feedback/preferences")
+async def update_preferences(request: Request) -> dict:
+    """Update style preferences. Only provided fields are changed.
+
+    Body: { like_more?, like_less?, body_notes?, mood_notes?, setting_notes?, custom? }
+    """
+    body = await request.json()
+    prefs = feedback_manager.update_preferences(
+        like_more=body.get("like_more"),
+        like_less=body.get("like_less"),
+        body_notes=body.get("body_notes"),
+        mood_notes=body.get("mood_notes"),
+        setting_notes=body.get("setting_notes"),
+        custom=body.get("custom"),
+    )
+    return {
+        "ok": True,
+        "preferences": feedback_manager.get_preferences(),
+        "summary": feedback_manager.summary(),
+    }
+
+
+@router.get("/v1/generate/feedback/summary")
+async def feedback_summary() -> dict:
+    """Get feedback summary with stats and active preferences."""
+    return {
+        **feedback_manager.summary(),
+        "preferences": feedback_manager.get_preferences(),
+    }
+
+
+@router.get("/v1/generate/feedback/prompt-context")
+async def feedback_prompt_context(subject: str = "") -> dict:
+    """Preview the feedback context that would be injected into LLM prompt generation.
+
+    Useful for debugging — shows exactly what the LLM sees about your preferences.
+    """
+    context = feedback_manager.get_prompt_context(subject=subject or None)
+    return {"context": context, "has_feedback": bool(context)}
 
 
 @router.post("/v1/generate/preview-prompts")
@@ -872,7 +1026,7 @@ async def list_performer_refs(slug: str) -> dict:
 
 
 @router.get("/v1/generate/performer-refs/{slug}/{filename}")
-async def serve_performer_ref(slug: str, filename: str) -> StreamingResponse:
+async def serve_performer_ref(slug: str, filename: str) -> FileResponse:
     """Serve a performer reference photo."""
     ref_path = Path(PERFORMER_REFS_DIR) / slug / filename
     if not ref_path.exists():
@@ -880,8 +1034,8 @@ async def serve_performer_ref(slug: str, filename: str) -> StreamingResponse:
 
     ext = ref_path.suffix.lower()
     ct = {".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".png": "image/png", ".webp": "image/webp"}
-    return StreamingResponse(
-        open(ref_path, "rb"),
+    return FileResponse(
+        path=ref_path,
         media_type=ct.get(ext, "application/octet-stream"),
         headers={"Cache-Control": "public, max-age=86400"},
     )
@@ -912,3 +1066,145 @@ async def generation_progress_ws(websocket: WebSocket, clientId: str = ""):
             await websocket.close(code=1011, reason=str(e))
         except Exception:
             pass
+
+
+# ─── Auto-Generation Scheduler ───────────────────────────────────────────
+
+
+@router.get("/v1/generate/scheduler")
+async def scheduler_status() -> dict:
+    """Get auto-generation scheduler status, subjects, and next run info."""
+    return gen_scheduler.get_status()
+
+
+@router.post("/v1/generate/scheduler/start")
+async def scheduler_start(request: Request, interval: int | None = None) -> dict:
+    """Start the auto-generation scheduler.
+
+    Args:
+        interval: Override interval in minutes (default: 120).
+    """
+    verify_api_key(request)
+    gen_scheduler.start(interval_minutes=interval)
+    return {
+        "status": "started",
+        "interval_minutes": gen_scheduler._state.interval_minutes,
+        "subjects": len(gen_scheduler._subjects),
+    }
+
+
+@router.post("/v1/generate/scheduler/stop")
+async def scheduler_stop(request: Request) -> dict:
+    """Stop the auto-generation scheduler."""
+    verify_api_key(request)
+    gen_scheduler.stop()
+    return {"status": "stopped"}
+
+
+@router.post("/v1/generate/scheduler/trigger")
+async def scheduler_trigger(request: Request) -> dict:
+    """Trigger an immediate scheduled generation (bypasses interval timer).
+
+    Optionally specify subject and/or theme to override auto-selection.
+    """
+    verify_api_key(request)
+    body = await request.json() if request.headers.get("content-type", "").startswith("application/json") else {}
+    subject_name = body.get("subject")
+    theme_key = body.get("theme")
+
+    result = await gen_scheduler.create_scheduled_drop(
+        subject_name=subject_name,
+        theme_key=theme_key,
+    )
+    return result
+
+
+@router.get("/v1/generate/scheduler/subjects")
+async def scheduler_subjects() -> list[dict]:
+    """List all registered subjects with their config and stats."""
+    subjects = []
+    for s in gen_scheduler._subjects.values():
+        import time as _time
+        info = {
+            "name": s.name,
+            "display_name": s.display_name or s.name,
+            "enabled": s.enabled,
+            "has_refs": s.has_refs,
+            "ref_count": len(list(s.ref_dir.glob("*"))) if s.ref_dir.exists() else 0,
+            "themes": s.themes,
+            "images_per_drop": s.images_per_drop,
+            "mode": s.mode,
+            "priority": s.priority,
+            "total_generated": s.total_generated,
+            "last_theme_index": s.last_theme_index,
+            "notes": s.notes,
+        }
+        if s.last_generated:
+            info["last_generated"] = _time.strftime(
+                "%Y-%m-%d %H:%M", _time.localtime(s.last_generated)
+            )
+        subjects.append(info)
+    return subjects
+
+
+@router.post("/v1/generate/scheduler/subjects")
+async def scheduler_add_subject(request: Request) -> dict:
+    """Register a new subject for auto-generation.
+
+    Body: {name, display_name?, themes?, mode?, priority?, notes?}
+    Reference images must be placed in /mnt/vault/data/gen-subjects/<name>/
+    """
+    verify_api_key(request)
+    body = await request.json()
+    name = body.get("name", "").strip()
+    if not name:
+        raise HTTPException(status_code=400, detail="'name' is required")
+
+    subject = gen_scheduler.add_subject(
+        name=name,
+        display_name=body.get("display_name", ""),
+        themes=body.get("themes"),
+        mode=body.get("mode", "explicit"),
+        priority=body.get("priority", 1),
+    )
+    if body.get("notes"):
+        subject.notes = body["notes"]
+        gen_scheduler.save_config()
+
+    return {
+        "status": "added",
+        "name": subject.name,
+        "ref_dir": str(subject.ref_dir),
+        "has_refs": subject.has_refs,
+    }
+
+
+@router.delete("/v1/generate/scheduler/subjects/{name}")
+async def scheduler_remove_subject(request: Request, name: str) -> dict:
+    """Remove a subject from auto-generation (does not delete files)."""
+    verify_api_key(request)
+    if gen_scheduler.remove_subject(name):
+        return {"status": "removed", "name": name}
+    raise HTTPException(status_code=404, detail=f"Subject not found: {name}")
+
+
+@router.put("/v1/generate/scheduler/config")
+async def scheduler_update_config(request: Request) -> dict:
+    """Update scheduler configuration.
+
+    Body: {interval_minutes?, quiet_start?, quiet_end?, enabled?}
+    """
+    verify_api_key(request)
+    body = await request.json()
+
+    if "interval_minutes" in body:
+        gen_scheduler._state.interval_minutes = int(body["interval_minutes"])
+    if "quiet_start" in body:
+        gen_scheduler._state.quiet_start = int(body["quiet_start"])
+    if "quiet_end" in body:
+        gen_scheduler._state.quiet_end = int(body["quiet_end"])
+    if "enabled" in body:
+        gen_scheduler._state.enabled = bool(body["enabled"])
+
+    gen_scheduler.save_config()
+    return gen_scheduler.get_status()

@@ -1,20 +1,48 @@
-# WORKSHOP — Fast Inference + Creative Pipeline
-# Specs populated by scripts/discover.sh
+# WORKSHOP — Creative Pipeline (ComfyUI) + Monitoring
 #
-# vLLM runs as a systemd service (not Docker) for direct GPU access.
-# This compose file is for auxiliary services.
+# GPU Layout (verified 2026-03-06):
+#   GPU 0: RTX 5090 32GB  → ComfyUI (face-ID pipeline: Flux FP8 + PuLID + InsightFace + GFPGAN)
+#   GPU 1: RTX 5060 Ti 16GB → idle (too small for useful LLM — OOM with 8B+ models)
+#
+# No vLLM on WORKSHOP — "fast" alias in LiteLLM routes to FOUNDRY:8004.
+# ComfyUI is pinned to GPU 0 (5090) via device_ids and NVIDIA_VISIBLE_DEVICES.
 
 services:
-  # ComfyUI for image generation (Flux + Wan2.2)
   comfyui:
-    image: ghcr.io/ai-dock/comfyui:latest
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: athanor/comfyui:blackwell
+    container_name: comfyui
+    restart: unless-stopped
     ports:
       - "8188:8188"
     volumes:
-      - /mnt/models/diffusion:/opt/ComfyUI/models
       - comfyui-output:/opt/ComfyUI/output
+      - comfyui-input:/opt/ComfyUI/input
+      - comfyui-custom-nodes:/opt/ComfyUI/custom_nodes
+      - comfyui-user:/opt/ComfyUI/user
+      - /mnt/vault/models:/mnt/vault/models:ro
+      - /opt/athanor/comfyui/extra_model_paths.yaml:/opt/ComfyUI/extra_model_paths.yaml:ro
+    ipc: host
+    ulimits:
+      memlock: -1
+      stack: 67108864
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              device_ids: ["0"]
+              capabilities: [gpu]
     environment:
-      - NVIDIA_VISIBLE_DEVICES=all
+      - NVIDIA_VISIBLE_DEVICES=0
+
+  # NVIDIA DCGM GPU metrics exporter
+  dcgm-exporter:
+    image: nvcr.io/nvidia/k8s/dcgm-exporter:3.3.5-3.4.0-ubuntu22.04
+    ports:
+      - "9400:9400"
     deploy:
       resources:
         reservations:
@@ -24,7 +52,7 @@ services:
               capabilities: [gpu]
     restart: unless-stopped
 
-  # Node metrics exporter
+  # Node system metrics exporter
   node-exporter:
     image: prom/node-exporter:latest
     ports:
@@ -38,11 +66,8 @@ services:
       - '--path.sysfs=/host/sys'
     restart: unless-stopped
 
-  nvidia-exporter:
-    image: utkuozdemir/nvidia_gpu_exporter:1.2.0
-    ports:
-      - "9835:9835"
-    restart: unless-stopped
-
 volumes:
   comfyui-output:
+  comfyui-input:
+  comfyui-custom-nodes:
+  comfyui-user:

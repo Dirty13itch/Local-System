@@ -65,6 +65,7 @@ async def cluster_health(request: Request) -> dict:
         ("vllm_reasoning", settings.inference.vllm_reasoning_host),
         ("vllm_fast", settings.inference.vllm_fast_host),
         ("vllm_coding", settings.inference.vllm_coding_host),
+        ("vllm_creative", settings.inference.vllm_creative_host),
         ("vllm_embedding", settings.inference.vllm_embedding_host),
     ]:
         try:

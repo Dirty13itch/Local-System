@@ -273,6 +273,176 @@ body {
   white-space: nowrap;
 }
 
+/* ─── Rating Buttons on Thumbnails ───────────────────────────── */
+.thumb-rating {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  display: flex;
+  gap: 3px;
+  z-index: 10;
+  opacity: 0;
+  transition: opacity 0.2s;
+}
+.thumb-card:hover .thumb-rating { opacity: 1; }
+.thumb-card.rated .thumb-rating { opacity: 1; }
+.rate-btn {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  border: 1px solid rgba(255,255,255,0.25);
+  background: rgba(0,0,0,0.6);
+  color: rgba(255,255,255,0.7);
+  font-size: 14px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.15s;
+  padding: 0;
+  line-height: 1;
+}
+.rate-btn:hover { background: rgba(255,255,255,0.15); transform: scale(1.1); }
+.rate-btn.active-good {
+  background: rgba(34,197,94,0.7);
+  border-color: var(--success);
+  color: #fff;
+}
+.rate-btn.active-bad {
+  background: rgba(239,68,68,0.7);
+  border-color: var(--error);
+  color: #fff;
+}
+
+/* ─── Rating Badge (always visible when rated) ────────────────── */
+.thumb-rated-badge {
+  position: absolute;
+  top: 6px;
+  left: 6px;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  z-index: 10;
+}
+.thumb-rated-badge.good { background: var(--success); box-shadow: 0 0 6px var(--success); }
+.thumb-rated-badge.bad { background: var(--error); box-shadow: 0 0 6px var(--error); }
+
+/* ─── Preferences Panel ──────────────────────────────────────── */
+.prefs-toggle {
+  padding: 8px 14px;
+  border-radius: var(--radius);
+  font-size: 0.8rem;
+  cursor: pointer;
+  border: 1px solid var(--border);
+  background: var(--bg-secondary);
+  color: var(--text-secondary);
+  transition: all 0.15s;
+  white-space: nowrap;
+}
+.prefs-toggle:hover { border-color: var(--accent); color: var(--text-primary); }
+.prefs-toggle.has-prefs { border-color: var(--success); color: var(--success); }
+
+.prefs-panel {
+  position: fixed;
+  top: 0;
+  right: -420px;
+  width: 400px;
+  max-width: 90vw;
+  height: 100vh;
+  background: var(--bg-secondary);
+  border-left: 1px solid var(--border);
+  z-index: 500;
+  transition: right 0.3s ease;
+  overflow-y: auto;
+  padding: 20px;
+}
+.prefs-panel.open { right: 0; }
+.prefs-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,0.5);
+  z-index: 499;
+  display: none;
+}
+.prefs-overlay.open { display: block; }
+
+.prefs-panel h3 {
+  font-size: 1.1rem;
+  font-weight: 600;
+  color: var(--text-primary);
+  margin-bottom: 6px;
+}
+.prefs-panel .prefs-subtitle {
+  font-size: 0.8rem;
+  color: var(--text-dim);
+  margin-bottom: 20px;
+}
+.prefs-field {
+  margin-bottom: 16px;
+}
+.prefs-field label {
+  display: block;
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: var(--text-secondary);
+  margin-bottom: 4px;
+}
+.prefs-field textarea {
+  width: 100%;
+  min-height: 60px;
+  padding: 8px 10px;
+  background: var(--bg-primary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  color: var(--text-primary);
+  font-size: 0.85rem;
+  font-family: inherit;
+  resize: vertical;
+  outline: none;
+  transition: border-color 0.2s;
+}
+.prefs-field textarea:focus { border-color: var(--accent); }
+.prefs-field textarea::placeholder { color: var(--text-dim); }
+.prefs-field .prefs-hint {
+  font-size: 0.72rem;
+  color: var(--text-dim);
+  margin-top: 3px;
+}
+.prefs-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 20px;
+}
+.prefs-actions button {
+  padding: 8px 20px;
+  border-radius: var(--radius);
+  border: 1px solid var(--border);
+  font-size: 0.85rem;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+.prefs-save {
+  background: var(--accent);
+  color: #fff;
+  border-color: var(--accent) !important;
+}
+.prefs-save:hover { opacity: 0.85; }
+.prefs-cancel {
+  background: var(--bg-primary);
+  color: var(--text-secondary);
+}
+.prefs-cancel:hover { border-color: var(--accent); color: var(--text-primary); }
+.prefs-stats {
+  margin-top: 24px;
+  padding-top: 16px;
+  border-top: 1px solid var(--border);
+  font-size: 0.8rem;
+  color: var(--text-secondary);
+}
+.prefs-stats .stat-line { margin-bottom: 4px; }
+.prefs-stats .stat-good { color: var(--success); }
+.prefs-stats .stat-bad { color: var(--error); }
+
 /* ─── Empty / Loading States ───────────────────────────────────── */
 .empty-state {
   text-align: center;
@@ -348,13 +518,90 @@ body {
   color: var(--text-secondary);
   font-size: 0.85rem;
   cursor: default;
-  max-width: 600px;
+  max-width: 700px;
+  width: 100%;
 }
 .lightbox-info .lb-subject {
   font-size: 1rem;
   font-weight: 600;
   color: var(--text-primary);
   margin-bottom: 4px;
+}
+.lb-prompt {
+  margin-top: 8px;
+  padding: 8px 12px;
+  background: rgba(255,255,255,0.05);
+  border-radius: var(--radius);
+  font-size: 0.8rem;
+  color: var(--text-secondary);
+  line-height: 1.5;
+  max-height: 80px;
+  overflow-y: auto;
+  text-align: left;
+  cursor: text;
+  user-select: text;
+}
+.lb-prompt::-webkit-scrollbar { width: 4px; }
+.lb-prompt::-webkit-scrollbar-track { background: transparent; }
+.lb-prompt::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.15); border-radius: 2px; }
+.lb-actions {
+  margin-top: 10px;
+  display: flex;
+  gap: 8px;
+  justify-content: center;
+  flex-wrap: wrap;
+}
+.lb-actions button, .lb-actions a {
+  padding: 6px 14px;
+  border-radius: var(--radius);
+  border: 1px solid rgba(255,255,255,0.15);
+  background: rgba(255,255,255,0.05);
+  color: var(--text-primary);
+  font-size: 0.8rem;
+  cursor: pointer;
+  text-decoration: none;
+  transition: background 0.15s, border-color 0.15s;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+.lb-actions button:hover, .lb-actions a:hover {
+  background: rgba(255,255,255,0.12);
+  border-color: rgba(255,255,255,0.3);
+}
+.lb-actions .slideshow-active {
+  border-color: var(--accent);
+  background: var(--accent-glow);
+  color: var(--accent);
+}
+.lb-refs {
+  margin-top: 10px;
+  display: flex;
+  gap: 6px;
+  justify-content: center;
+}
+.lb-refs img {
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  object-fit: cover;
+  border: 2px solid rgba(255,255,255,0.15);
+  cursor: default;
+}
+
+/* ─── Ref thumbnails in drop groups ─────────────────────────── */
+.drop-refs {
+  display: flex;
+  gap: 4px;
+  margin-left: auto;
+  align-items: center;
+}
+.drop-refs img {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  object-fit: cover;
+  border: 1.5px solid var(--border);
 }
 
 .lightbox-close {
@@ -451,6 +698,7 @@ body {
     <div class="header-title"><span>&#9670;</span> Gallery</div>
     <div class="header-stats" id="headerStats">
       <div class="stat-badge"><span class="stat-dot total"></span> <span id="statTotal">--</span> drops</div>
+      <div class="stat-badge"><span class="stat-dot done"></span> <span id="statImages">--</span> images</div>
       <div class="stat-badge"><span class="stat-dot done"></span> <span id="statDone">--</span> done</div>
       <div class="stat-badge"><span class="stat-dot pending"></span> <span id="statPending">--</span> pending</div>
       <div class="stat-badge"><span class="stat-dot error"></span> <span id="statErrors">--</span> errors</div>
@@ -472,6 +720,7 @@ body {
     <div class="chip" data-filter="error">Error</div>
   </div>
   <button class="sort-btn" id="sortBtn" title="Toggle sort order">Newest first</button>
+  <button class="prefs-toggle" id="prefsToggle" title="Style preferences — steer generation">&#9881; Preferences</button>
   <div class="refresh-indicator" id="refreshIndicator">Auto-refresh: 30s</div>
 </div>
 
@@ -492,6 +741,65 @@ body {
     <img id="lbImg" src="" alt="">
   </div>
   <div class="lightbox-info" id="lbInfo"></div>
+  <div class="lb-prompt" id="lbPrompt" style="display:none;"></div>
+  <div class="lb-refs" id="lbRefs"></div>
+  <div class="lb-actions" id="lbActions">
+    <button id="lbRateGood" class="rate-btn" title="Good — generate more like this" style="width:auto;border-radius:var(--radius);padding:6px 14px;font-size:0.8rem;">&#128077; Good</button>
+    <button id="lbRateBad" class="rate-btn" title="Bad — avoid this style" style="width:auto;border-radius:var(--radius);padding:6px 14px;font-size:0.8rem;">&#128078; Bad</button>
+    <a id="lbDownload" href="#" download title="Download image">&#8681; Download</a>
+    <button id="lbSlideshow" title="Auto-advance every 4s">&#9654; Slideshow</button>
+    <button id="lbCopyPrompt" title="Copy prompt to clipboard">&#128203; Copy prompt</button>
+  </div>
+</div>
+
+<!-- ─── Preferences Panel ──────────────────────────────────────── -->
+<div class="prefs-overlay" id="prefsOverlay"></div>
+<div class="prefs-panel" id="prefsPanel">
+  <h3>&#9881; Generation Preferences</h3>
+  <p class="prefs-subtitle">Tell the AI what you want more and less of. These preferences are injected into every prompt generation.</p>
+
+  <div class="prefs-field">
+    <label>Generate MORE of:</label>
+    <textarea id="prefLikeMore" placeholder="e.g. dramatic lighting, outdoor scenes, golden hour, artistic angles..."></textarea>
+    <div class="prefs-hint">Styles, settings, poses, moods you want to see more often</div>
+  </div>
+
+  <div class="prefs-field">
+    <label>Generate LESS of / Avoid:</label>
+    <textarea id="prefLikeLess" placeholder="e.g. boring studio shots, too many close-ups, harsh lighting..."></textarea>
+    <div class="prefs-hint">Things you're tired of seeing or don't want</div>
+  </div>
+
+  <div class="prefs-field">
+    <label>Body type preferences:</label>
+    <textarea id="prefBody" placeholder="e.g. athletic build, curvy, specific features..."></textarea>
+  </div>
+
+  <div class="prefs-field">
+    <label>Mood / Expression:</label>
+    <textarea id="prefMood" placeholder="e.g. confident, intense, playful, sultry..."></textarea>
+  </div>
+
+  <div class="prefs-field">
+    <label>Settings / Environments:</label>
+    <textarea id="prefSetting" placeholder="e.g. natural outdoor, luxury interiors, moody cinematic..."></textarea>
+  </div>
+
+  <div class="prefs-field">
+    <label>Other notes:</label>
+    <textarea id="prefCustom" placeholder="Any other instructions for the generation AI..."></textarea>
+  </div>
+
+  <div class="prefs-actions">
+    <button class="prefs-save" id="prefsSave">Save Preferences</button>
+    <button class="prefs-cancel" id="prefsCancel">Cancel</button>
+  </div>
+
+  <div class="prefs-stats" id="prefsStats">
+    <div class="stat-line">Total rated: <strong id="prefStatTotal">0</strong></div>
+    <div class="stat-line">Good: <strong class="stat-good" id="prefStatGood">0</strong></div>
+    <div class="stat-line">Bad: <strong class="stat-bad" id="prefStatBad">0</strong></div>
+  </div>
 </div>
 
 <!-- ─── Toast ──────────────────────────────────────────────────── -->
@@ -503,7 +811,7 @@ body {
 
   // ─── State ──────────────────────────────────────────────────────
   let allDrops = [];          // Array of drop objects with detail data
-  let allImages = [];         // Flat list of {drop, filename, url} for lightbox nav
+  let allImages = [];         // Flat list of {drop, filename, url, promptIdx} for lightbox nav
   let activeFilter = 'all';
   let searchQuery = '';
   let sortNewest = true;
@@ -512,6 +820,9 @@ body {
   let countdownInterval = null;
   let lbIndex = -1;           // Current lightbox image index in allImages
   let isFirstLoad = true;
+  let slideshowTimer = null;  // Slideshow auto-advance timer
+  let totalImageCount = 0;    // Total images across all drops
+  let ratingsMap = {};         // 'subject/filename' → 'good'|'bad'
 
   // ─── DOM Refs ───────────────────────────────────────────────────
   const $content          = document.getElementById('content');
@@ -523,10 +834,23 @@ body {
   const $lightbox         = document.getElementById('lightbox');
   const $lbImg            = document.getElementById('lbImg');
   const $lbInfo           = document.getElementById('lbInfo');
+  const $lbPrompt         = document.getElementById('lbPrompt');
+  const $lbRefs           = document.getElementById('lbRefs');
+  const $lbDownload       = document.getElementById('lbDownload');
+  const $lbSlideshow      = document.getElementById('lbSlideshow');
+  const $lbCopyPrompt     = document.getElementById('lbCopyPrompt');
+  const $statImages       = document.getElementById('statImages');
+  const $lbRateGood       = document.getElementById('lbRateGood');
+  const $lbRateBad        = document.getElementById('lbRateBad');
   const $lbClose          = document.getElementById('lbClose');
   const $lbPrev           = document.getElementById('lbPrev');
   const $lbNext           = document.getElementById('lbNext');
   const $toast            = document.getElementById('toast');
+  const $prefsToggle      = document.getElementById('prefsToggle');
+  const $prefsPanel       = document.getElementById('prefsPanel');
+  const $prefsOverlay     = document.getElementById('prefsOverlay');
+  const $prefsSave        = document.getElementById('prefsSave');
+  const $prefsCancel      = document.getElementById('prefsCancel');
 
   // Stats
   const $statTotal   = document.getElementById('statTotal');
@@ -547,34 +871,153 @@ body {
     return `${API_BASE}/v1/generate/drops/${encodeURIComponent(dropName)}/image/${encodeURIComponent(filename)}`;
   }
 
+  async function postJSON(path, body) {
+    const resp = await fetch(API_BASE + path, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    if (!resp.ok) throw new Error(`${resp.status} ${resp.statusText}`);
+    return resp.json();
+  }
+
+  async function putJSON(path, body) {
+    const resp = await fetch(API_BASE + path, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    if (!resp.ok) throw new Error(`${resp.status} ${resp.statusText}`);
+    return resp.json();
+  }
+
+  // ─── Feedback API ──────────────────────────────────────────────
+  async function rateImage(subject, filename, rating, prompt) {
+    try {
+      const result = await postJSON('/v1/generate/feedback/rate', {
+        subject, filename, rating, prompt: prompt || '',
+      });
+      // Update local ratings map
+      ratingsMap[subject + '/' + filename] = rating;
+      showToast(rating === 'good' ? '👍 Rated good' : '👎 Rated bad');
+      render(); // Re-render thumbnails to show rating badges
+      updateLightbox(); // Update lightbox buttons
+      return result;
+    } catch (err) {
+      console.error('Failed to rate:', err);
+      showToast('Rating failed');
+    }
+  }
+
+  async function loadPreferences() {
+    try {
+      const data = await fetchJSON('/v1/generate/feedback/preferences');
+      const prefs = data.preferences || {};
+      document.getElementById('prefLikeMore').value = prefs.like_more || '';
+      document.getElementById('prefLikeLess').value = prefs.like_less || '';
+      document.getElementById('prefBody').value = prefs.body_notes || '';
+      document.getElementById('prefMood').value = prefs.mood_notes || '';
+      document.getElementById('prefSetting').value = prefs.setting_notes || '';
+      document.getElementById('prefCustom').value = prefs.custom || '';
+      // Update stats
+      const sum = data.summary || {};
+      document.getElementById('prefStatTotal').textContent = sum.total_rated || 0;
+      document.getElementById('prefStatGood').textContent = sum.total_good || 0;
+      document.getElementById('prefStatBad').textContent = sum.total_bad || 0;
+      // Update toggle button style
+      $prefsToggle.classList.toggle('has-prefs', sum.preferences_active || false);
+    } catch (err) {
+      console.error('Failed to load preferences:', err);
+    }
+  }
+
+  async function savePreferences() {
+    try {
+      await putJSON('/v1/generate/feedback/preferences', {
+        like_more: document.getElementById('prefLikeMore').value,
+        like_less: document.getElementById('prefLikeLess').value,
+        body_notes: document.getElementById('prefBody').value,
+        mood_notes: document.getElementById('prefMood').value,
+        setting_notes: document.getElementById('prefSetting').value,
+        custom: document.getElementById('prefCustom').value,
+      });
+      showToast('Preferences saved — next generation will use these');
+      closePrefsPanel();
+      $prefsToggle.classList.add('has-prefs');
+    } catch (err) {
+      console.error('Failed to save preferences:', err);
+      showToast('Failed to save preferences');
+    }
+  }
+
+  function openPrefsPanel() {
+    loadPreferences();
+    $prefsPanel.classList.add('open');
+    $prefsOverlay.classList.add('open');
+  }
+
+  function closePrefsPanel() {
+    $prefsPanel.classList.remove('open');
+    $prefsOverlay.classList.remove('open');
+  }
+
   // ─── Data Loading ──────────────────────────────────────────────
   async function loadData() {
     try {
-      const status = await fetchJSON('/v1/generate/drops');
-      const entries = status.entries || [];
+      // Single aggregated request — no N+1 per-drop fetches
+      const gallery = await fetchJSON('/v1/generate/gallery');
+      const subjects = gallery.subjects || [];
+      totalImageCount = gallery.total_images || 0;
+      ratingsMap = gallery.ratings || {};
 
-      // Update stats
-      $statTotal.textContent   = status.total_drops || entries.length;
-      $statDone.textContent    = status.done || 0;
-      $statPending.textContent = status.pending || 0;
-      $statErrors.textContent  = status.errors || 0;
+      // Map gallery subjects to the drop format our renderer expects
+      allDrops = subjects.map(s => ({
+        name: s.name,
+        status: s.status || 'done',
+        output_images: (s.images || []).map(img => img.filename),
+        manifest: {
+          prompts: s.prompts || [],
+          context: s.context || '',
+          pipeline: s.pipeline || '',
+          identity_method: s.identity_method || '',
+          processed_at: s.processed_at || '',
+        },
+        processed_at: s.latest || 0,
+        created_at: s.latest || 0,
+        refs: s.refs || [],
+      }));
 
-      // Fetch detail for each entry that has images (done status or output exists)
-      const detailPromises = entries.map(async (entry) => {
-        try {
-          const detail = await fetchJSON(`/v1/generate/drops/${encodeURIComponent(entry.name)}`);
-          return detail;
-        } catch (e) {
-          // Return basic entry info if detail fetch fails
-          return {
-            ...entry,
-            output_images: [],
-            manifest: null,
-          };
-        }
-      });
+      // Also fetch drops status for pending/processing/error counts
+      try {
+        const dropStatus = await fetchJSON('/v1/generate/drops');
+        $statTotal.textContent   = dropStatus.total_drops || allDrops.length;
+        $statImages.textContent  = totalImageCount;
+        $statDone.textContent    = dropStatus.done || 0;
+        $statPending.textContent = dropStatus.pending || 0;
+        $statErrors.textContent  = dropStatus.errors || 0;
 
-      allDrops = await Promise.all(detailPromises);
+        // Merge any pending/processing/error drops that have no images yet
+        const galleryNames = new Set(allDrops.map(d => d.name));
+        (dropStatus.entries || []).forEach(entry => {
+          if (!galleryNames.has(entry.name) && entry.status !== 'done') {
+            allDrops.push({
+              name: entry.name,
+              status: entry.status,
+              output_images: [],
+              manifest: null,
+              processed_at: 0,
+              created_at: 0,
+            });
+          }
+        });
+      } catch (_) {
+        // Gallery endpoint worked, drops status is bonus info
+        $statTotal.textContent = allDrops.length;
+        $statImages.textContent = totalImageCount;
+        $statDone.textContent  = allDrops.filter(d => d.status === 'done').length;
+        $statPending.textContent = allDrops.filter(d => d.status === 'pending').length;
+        $statErrors.textContent  = allDrops.filter(d => d.status === 'error').length;
+      }
 
       if (isFirstLoad) {
         $loadingState.style.display = 'none';
@@ -602,11 +1045,14 @@ body {
     allImages = [];
     drops.forEach(drop => {
       const images = drop.output_images || [];
-      images.forEach(filename => {
+      const prompts = (drop.manifest && drop.manifest.prompts) || [];
+      images.forEach((filename, idx) => {
         allImages.push({
           drop: drop,
           filename: filename,
           url: imageURL(drop.name, filename),
+          promptIdx: idx,
+          prompt: prompts[idx] || prompts[0] || '',
         });
       });
     });
@@ -631,6 +1077,18 @@ body {
       const dateStr = formatDate(drop.processed_at || drop.created_at);
       const statusClass = drop.status || 'pending';
 
+      // Build ref thumbnail HTML
+      const refs = drop.refs || [];
+      let refsHtml = '';
+      if (refs.length > 0) {
+        refsHtml = '<div class="drop-refs">';
+        refs.slice(0, 4).forEach(ref => {
+          refsHtml += `<img src="${escapeAttr(API_BASE + ref.url)}" alt="ref" loading="lazy">`;
+        });
+        if (refs.length > 4) refsHtml += `<span style="color:var(--text-dim);font-size:0.75rem;">+${refs.length - 4}</span>`;
+        refsHtml += '</div>';
+      }
+
       html += `<div class="drop-group" data-name="${escapeAttr(drop.name)}">
         <div class="drop-header">
           <span class="drop-name">${escapeHtml(displayName)}</span>
@@ -640,6 +1098,7 @@ body {
             ${pipeline !== '--' ? `<span class="drop-meta-item">${escapeHtml(pipeline)}</span>` : ''}
             <span class="drop-meta-item">${dateStr}</span>
           </div>
+          ${refsHtml}
         </div>`;
 
       if (images.length > 0) {
@@ -649,7 +1108,18 @@ body {
           const globalIdx = allImages.findIndex(
             im => im.drop.name === drop.name && im.filename === filename
           );
-          html += `<div class="thumb-card" data-idx="${globalIdx}" onclick="Gallery.openLightbox(${globalIdx})">
+          const ratingKey = drop.name + '/' + filename;
+          const currentRating = ratingsMap[ratingKey] || '';
+          const ratedClass = currentRating ? ' rated' : '';
+          const badgeHtml = currentRating
+            ? `<div class="thumb-rated-badge ${currentRating}"></div>`
+            : '';
+          html += `<div class="thumb-card${ratedClass}" data-idx="${globalIdx}" onclick="Gallery.openLightbox(${globalIdx})">
+            ${badgeHtml}
+            <div class="thumb-rating">
+              <button class="rate-btn${currentRating === 'good' ? ' active-good' : ''}" onclick="event.stopPropagation();Gallery.rate('${escapeAttr(drop.name)}','${escapeAttr(filename)}','good',${globalIdx})" title="Good">&#128077;</button>
+              <button class="rate-btn${currentRating === 'bad' ? ' active-bad' : ''}" onclick="event.stopPropagation();Gallery.rate('${escapeAttr(drop.name)}','${escapeAttr(filename)}','bad',${globalIdx})" title="Bad">&#128078;</button>
+            </div>
             <img src="${escapeAttr(url)}" alt="${escapeAttr(filename)}" class="loading"
                  onload="this.classList.remove('loading');this.classList.add('loaded')"
                  onerror="this.style.display='none'"
@@ -712,9 +1182,43 @@ body {
   }
 
   function closeLightbox() {
+    stopSlideshow();
     $lightbox.classList.remove('open');
     document.body.style.overflow = '';
     lbIndex = -1;
+  }
+
+  function toggleSlideshow() {
+    if (slideshowTimer) {
+      stopSlideshow();
+    } else {
+      slideshowTimer = setInterval(function() { navigateLightbox(1); }, 4000);
+    }
+    updateLightbox();
+  }
+
+  function stopSlideshow() {
+    if (slideshowTimer) {
+      clearInterval(slideshowTimer);
+      slideshowTimer = null;
+    }
+  }
+
+  function copyPromptToClipboard() {
+    const entry = allImages[lbIndex];
+    if (!entry || !entry.prompt) return;
+    navigator.clipboard.writeText(entry.prompt).then(function() {
+      showToast('Prompt copied');
+    }).catch(function() {
+      // Fallback for older browsers
+      const ta = document.createElement('textarea');
+      ta.value = entry.prompt;
+      document.body.appendChild(ta);
+      ta.select();
+      document.execCommand('copy');
+      document.body.removeChild(ta);
+      showToast('Prompt copied');
+    });
   }
 
   function navigateLightbox(delta) {
@@ -737,10 +1241,53 @@ body {
       <div>${escapeHtml(entry.filename)}${pipeline ? ' &middot; ' + escapeHtml(pipeline) : ''} &middot; ${dateStr}</div>
       <div style="color:var(--text-dim);margin-top:4px;">${lbIndex + 1} / ${allImages.length}</div>
     `;
+
+    // Show prompt text if available
+    if (entry.prompt) {
+      $lbPrompt.textContent = entry.prompt;
+      $lbPrompt.style.display = 'block';
+    } else {
+      $lbPrompt.style.display = 'none';
+    }
+
+    // Download link
+    $lbDownload.href = entry.url;
+    $lbDownload.download = entry.filename;
+
+    // Reference image thumbnails
+    const refs = entry.drop.refs || [];
+    if (refs.length > 0) {
+      let refsHtml = '';
+      refs.slice(0, 6).forEach(ref => {
+        refsHtml += `<img src="${escapeAttr(API_BASE + ref.url)}" alt="ref" loading="lazy">`;
+      });
+      $lbRefs.innerHTML = refsHtml;
+      $lbRefs.style.display = 'flex';
+    } else {
+      $lbRefs.style.display = 'none';
+    }
+
+    // Update slideshow button state
+    $lbSlideshow.classList.toggle('slideshow-active', slideshowTimer !== null);
+    $lbSlideshow.innerHTML = slideshowTimer ? '&#9646;&#9646; Pause' : '&#9654; Slideshow';
+
+    // Update rating button states
+    const ratingKey = entry.drop.name + '/' + entry.filename;
+    const curRating = ratingsMap[ratingKey] || '';
+    $lbRateGood.classList.toggle('active-good', curRating === 'good');
+    $lbRateBad.classList.toggle('active-bad', curRating === 'bad');
+    $lbRateGood.innerHTML = curRating === 'good' ? '&#128077; Liked' : '&#128077; Good';
+    $lbRateBad.innerHTML = curRating === 'bad' ? '&#128078; Disliked' : '&#128078; Bad';
   }
 
   // Expose for onclick
-  window.Gallery = { openLightbox };
+  window.Gallery = {
+    openLightbox,
+    rate: function(subject, filename, rating, globalIdx) {
+      const prompt = allImages[globalIdx] ? allImages[globalIdx].prompt : '';
+      rateImage(subject, filename, rating, prompt);
+    },
+  };
 
   // ─── Events ─────────────────────────────────────────────────────
 
@@ -769,18 +1316,37 @@ body {
 
   // Lightbox controls
   $lbClose.addEventListener('click', function(e) { e.stopPropagation(); closeLightbox(); });
-  $lbPrev.addEventListener('click', function(e) { e.stopPropagation(); navigateLightbox(-1); });
-  $lbNext.addEventListener('click', function(e) { e.stopPropagation(); navigateLightbox(1); });
+  $lbPrev.addEventListener('click', function(e) { e.stopPropagation(); stopSlideshow(); navigateLightbox(-1); });
+  $lbNext.addEventListener('click', function(e) { e.stopPropagation(); stopSlideshow(); navigateLightbox(1); });
+  $lbSlideshow.addEventListener('click', function(e) { e.stopPropagation(); toggleSlideshow(); });
+  $lbCopyPrompt.addEventListener('click', function(e) { e.stopPropagation(); copyPromptToClipboard(); });
+  $lbRateGood.addEventListener('click', function(e) {
+    e.stopPropagation();
+    const entry = allImages[lbIndex];
+    if (entry) rateImage(entry.drop.name, entry.filename, 'good', entry.prompt);
+  });
+  $lbRateBad.addEventListener('click', function(e) {
+    e.stopPropagation();
+    const entry = allImages[lbIndex];
+    if (entry) rateImage(entry.drop.name, entry.filename, 'bad', entry.prompt);
+  });
   $lightbox.addEventListener('click', function(e) {
     if (e.target === $lightbox) closeLightbox();
   });
+
+  // Preferences panel
+  $prefsToggle.addEventListener('click', openPrefsPanel);
+  $prefsOverlay.addEventListener('click', closePrefsPanel);
+  $prefsCancel.addEventListener('click', closePrefsPanel);
+  $prefsSave.addEventListener('click', savePreferences);
 
   // Keyboard navigation
   document.addEventListener('keydown', function(e) {
     if (!$lightbox.classList.contains('open')) return;
     if (e.key === 'Escape') closeLightbox();
-    else if (e.key === 'ArrowLeft')  navigateLightbox(-1);
-    else if (e.key === 'ArrowRight') navigateLightbox(1);
+    else if (e.key === 'ArrowLeft')  { stopSlideshow(); navigateLightbox(-1); }
+    else if (e.key === 'ArrowRight') { stopSlideshow(); navigateLightbox(1); }
+    else if (e.key === ' ') { e.preventDefault(); toggleSlideshow(); }
   });
 
   // Touch swipe for lightbox

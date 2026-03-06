@@ -169,7 +169,8 @@ async def chat_stream(request: Request, body: ChatRequest) -> StreamingResponse:
 async def chat_websocket(websocket: WebSocket):
     """WebSocket for interactive chat sessions."""
     await websocket.accept()
-    client = httpx.AsyncClient(timeout=httpx.Timeout(300.0))
+    # Use the shared app-level HTTP client instead of creating a new one per connection
+    client = websocket.app.state.http_client
     try:
         while True:
             data = await websocket.receive_json()
@@ -187,8 +188,6 @@ async def chat_websocket(websocket: WebSocket):
             await websocket.send_json({"type": "done"})
     except WebSocketDisconnect:
         pass
-    finally:
-        await client.aclose()
 
 
 @router.get("/v1/models")

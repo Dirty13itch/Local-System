@@ -1,0 +1,18 @@
+vault_nfs:
+    base_path: /mnt/vault/models/comfyui/
+    checkpoints: checkpoints/
+    clip: clip/
+    clip_vision: clip_vision/
+    controlnet: controlnet/
+    diffusion_models: unet/
+    embeddings: embeddings/
+    facerestore_models: facerestore_models/
+    insightface: insightface/
+    instantid: instantid/
+    ipadapter: ipadapter/
+    loras: loras/
+    pulid: pulid/
+    ultralytics: ultralytics/
+    unet: unet/
+    upscale_models: upscale_models/
+    vae: vae/

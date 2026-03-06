@@ -23,7 +23,9 @@ from fastmcp import FastMCP
 
 DEV_HOST = os.environ.get("DEV_HOST", "192.168.1.189")
 MEMORY_PORT = int(os.environ.get("MEMORY_PORT", "8720"))
+PERCEPTION_PORT = int(os.environ.get("PERCEPTION_PORT", "8730"))
 MEMORY_URL = os.environ.get("MEMORY_API", f"http://{DEV_HOST}:{MEMORY_PORT}")
+PERCEPTION_URL = os.environ.get("PERCEPTION_API", f"http://{DEV_HOST}:{PERCEPTION_PORT}")
 REQUEST_TIMEOUT = float(os.environ.get("KNOWLEDGE_TIMEOUT", "30"))
 
 _client: httpx.AsyncClient | None = None
@@ -118,41 +120,52 @@ async def search_memory(
 @mcp.tool()
 async def ingest(
     texts: list[str],
-    collection: str = "default",
     sources: list[str] | None = None,
+    tags: list[str] | None = None,
 ) -> dict:
-    """Ingest documents into the knowledge base.
+    """Ingest documents into the knowledge base via Perception service.
 
     Chunks, embeds (via Qwen3-Embedding), and stores in both Qdrant
     (vector search) and Meilisearch (keyword search).
 
     Args:
         texts: List of text documents to ingest
-        collection: Target collection (default: "default")
         sources: Optional source labels for each text (e.g., filenames)
+        tags: Optional tags to apply to all ingested documents
     """
     client = await get_client()
-    body: dict = {"texts": texts, "collection": collection}
-    if sources:
-        body["sources"] = sources
-    try:
-        resp = await client.post(f"{MEMORY_URL}/v1/ingest", json=body)
-        resp.raise_for_status()
-        return resp.json()
-    except Exception as e:
-        return {"error": f"Ingestion failed: {e}"}
+    results = []
+    for i, text in enumerate(texts):
+        source = sources[i] if sources and i < len(sources) else f"mcp-ingest-{i}"
+        body: dict = {
+            "content": text,
+            "source": source,
+            "content_type": "text",
+            "tags": tags or [],
+        }
+        try:
+            resp = await client.post(f"{PERCEPTION_URL}/ingest/text", json=body)
+            resp.raise_for_status()
+            results.append(resp.json())
+        except Exception as e:
+            results.append({"error": f"Ingestion failed for item {i}: {e}"})
+    return {"results": results, "total": len(results)}
 
 
 @mcp.tool()
-async def list_collections() -> list[dict]:
-    """List all document collections with their stats."""
+async def list_collections() -> dict:
+    """List memory tier statistics and collection info.
+
+    Returns stats from all 6 memory tiers including entry counts
+    and health status.
+    """
     client = await get_client()
     try:
-        resp = await client.get(f"{MEMORY_URL}/v1/collections")
+        resp = await client.get(f"{MEMORY_URL}/v1/memory/stats")
         resp.raise_for_status()
         return resp.json()
     except Exception as e:
-        return [{"error": f"Failed to list collections: {e}"}]
+        return {"error": f"Failed to get memory stats: {e}"}
 
 
 @mcp.tool()
