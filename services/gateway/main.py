@@ -41,9 +41,8 @@ _cors_origins = os.environ.get(
     f"http://localhost:3000,http://localhost:3001,http://192.168.1.189:3000,http://192.168.1.50:3000,http://{settings.network.vault}:3001,http://{settings.network.dev}:3000",
 ).split(",")
 
-# ComfyUI URL — shared with auto_gen scanner
-_dev_host = settings.network.dev
-COMFYUI_URL = os.environ.get("COMFYUI_URL", f"http://{_dev_host}:8188")
+# ComfyUI URL — runs on WORKSHOP, shared with auto_gen scanner
+COMFYUI_URL = os.environ.get("COMFYUI_URL", f"http://{settings.network.workshop}:8188")
 
 
 @asynccontextmanager

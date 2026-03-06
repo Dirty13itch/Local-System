@@ -27,6 +27,8 @@ from dataclasses import dataclass, field, asdict
 from pathlib import Path
 from typing import Any
 
+import re
+
 import httpx
 
 logger = logging.getLogger("auto_gen")
@@ -38,12 +40,19 @@ DROPS_DIR = Path(os.environ.get("GEN_DROPS_DIR", "/mnt/vault/data/gen-drops"))
 REFS_DIR = Path(os.environ.get("GEN_REFS_DIR", "/mnt/vault/data/gen-refs"))
 OUTPUT_DIR = Path(os.environ.get("GEN_OUTPUT_DIR", "/mnt/vault/data/gen-output"))
 
-# ComfyUI
-COMFYUI_URL = os.environ.get("COMFYUI_URL", "http://localhost:8188")
+# ComfyUI — runs on WORKSHOP
+COMFYUI_URL = os.environ.get("COMFYUI_URL", "http://192.168.1.225:8188")
 
-# Ollama — local uncensored LLM for prompt generation
-OLLAMA_URL = os.environ.get("OLLAMA_URL", "http://localhost:11434")
-OLLAMA_MODEL = os.environ.get("OLLAMA_MODEL", "dolphin-mistral:7b")
+# LLM for prompt generation — uses OpenAI-compatible API (vLLM or LiteLLM)
+# Primary: vLLM creative (Huihui-Qwen3-8B-abliterated, uncensored) on FOUNDRY:8004
+# Alternative: LiteLLM on VAULT:4000 with model="creative"
+LLM_API_URL = os.environ.get(
+    "LLM_API_URL", "http://192.168.1.244:8004/v1"
+)
+LLM_MODEL = os.environ.get(
+    "LLM_MODEL", "/models/Huihui-Qwen3-8B-abliterated-v2"
+)
+LLM_API_KEY = os.environ.get("LLM_API_KEY", "not-needed")
 
 # Supported image extensions
 IMAGE_EXTS = {".jpg", ".jpeg", ".png", ".webp", ".bmp", ".tiff"}
@@ -141,20 +150,29 @@ async def generate_prompts_llm(
     user_msg += f"\nOutput exactly {count} prompts, one per line."
 
     try:
-        async with httpx.AsyncClient(timeout=60.0) as client:
+        async with httpx.AsyncClient(timeout=120.0) as client:
             resp = await client.post(
-                f"{OLLAMA_URL}/api/generate",
+                f"{LLM_API_URL}/chat/completions",
+                headers={
+                    "Authorization": f"Bearer {LLM_API_KEY}",
+                    "Content-Type": "application/json",
+                },
                 json={
-                    "model": OLLAMA_MODEL,
-                    "system": system_prompt,
-                    "prompt": user_msg,
-                    "stream": False,
-                    "options": {"temperature": 0.9, "num_predict": 1024},
+                    "model": LLM_MODEL,
+                    "messages": [
+                        {"role": "system", "content": system_prompt},
+                        {"role": "user", "content": user_msg},
+                    ],
+                    "temperature": 0.9,
+                    "max_tokens": 1024,
                 },
             )
             resp.raise_for_status()
             data = resp.json()
-            raw = data.get("response", "").strip()
+            raw = data["choices"][0]["message"]["content"].strip()
+
+            # Strip <think>...</think> tags from reasoning models
+            raw = re.sub(r"<think>.*?</think>", "", raw, flags=re.DOTALL).strip()
 
             # Parse — one prompt per line, skip empty lines and numbering
             prompts = []
