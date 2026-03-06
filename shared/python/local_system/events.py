@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import json
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any
 
 from local_system.config import get_settings
@@ -89,7 +89,7 @@ class EventBus:
             "id": generate_id("evt"),
             "type": event_type,
             "source": source or self._consumer_group,
-            "timestamp": datetime.utcnow().isoformat(),
+            "timestamp": datetime.now(timezone.utc).isoformat(),
             "data": json.dumps(data),
         }
 

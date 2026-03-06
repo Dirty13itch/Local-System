@@ -61,3 +61,9 @@ logs/
 *.pem
 *.key
 credentials/
+
+# Generated / lock files
+uv.lock
+ui/next-env.d.ts
+ui/tsconfig.tsbuildinfo
+package-lock.json

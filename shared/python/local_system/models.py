@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timezone
 from enum import Enum
 from typing import Any
 
@@ -56,7 +56,7 @@ class ChatResponse(BaseModel):
     model: str
     message: Message
     usage: TokenUsage
-    created_at: datetime = Field(default_factory=datetime.utcnow)
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
 
 class TokenUsage(BaseModel):
@@ -95,7 +95,7 @@ class MemoryEntry(BaseModel):
     metadata: dict[str, Any] = Field(default_factory=dict)
     source: str = ""
     confidence: float = 1.0
-    created_at: datetime = Field(default_factory=datetime.utcnow)
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     accessed_at: datetime | None = None
     expires_at: datetime | None = None
     embedding: list[float] | None = None
@@ -109,7 +109,7 @@ class WorkingContext(BaseModel):
     recent_messages: list[Message] = Field(default_factory=list)
     active_priorities: list[str] = Field(default_factory=list)
     unresolved_questions: list[str] = Field(default_factory=list)
-    session_start: datetime = Field(default_factory=datetime.utcnow)
+    session_start: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
 
 class EpisodicEvent(BaseModel):
@@ -121,7 +121,7 @@ class EpisodicEvent(BaseModel):
     details: dict[str, Any] = Field(default_factory=dict)
     participants: list[str] = Field(default_factory=list)
     outcome: str | None = None
-    timestamp: datetime = Field(default_factory=datetime.utcnow)
+    timestamp: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     embedding: list[float] | None = None
 
 
@@ -194,7 +194,7 @@ class BroadcastMessage(BaseModel):
     source_specialist: SpecialistType
     content: str
     context: dict[str, Any] = Field(default_factory=dict)
-    timestamp: datetime = Field(default_factory=datetime.utcnow)
+    timestamp: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
 
 class CognitiveState(BaseModel):
@@ -249,7 +249,7 @@ class Task(BaseModel):
     result: Any | None = None
     error: str | None = None
     memory_context: list[str] = Field(default_factory=list)  # memory IDs used
-    created_at: datetime = Field(default_factory=datetime.utcnow)
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     completed_at: datetime | None = None
 
 
@@ -265,7 +265,7 @@ class Document(BaseModel):
     metadata: dict[str, Any] = Field(default_factory=dict)
     embedding: list[float] | None = None
     chunk_index: int = 0
-    created_at: datetime = Field(default_factory=datetime.utcnow)
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
 
 class SearchResult(BaseModel):

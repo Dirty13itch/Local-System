@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import json
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any
 
 from local_system.config import get_settings
@@ -53,7 +53,8 @@ class WorkingTier(BaseTier):
         data = entry.model_dump_json()
         ttl = 3600  # 1 hour default
         if entry.expires_at:
-            ttl = max(1, int((entry.expires_at - datetime.utcnow()).total_seconds()))
+            exp = entry.expires_at.replace(tzinfo=timezone.utc) if entry.expires_at.tzinfo is None else entry.expires_at
+            ttl = max(1, int((exp - datetime.now(timezone.utc)).total_seconds()))
         await self._redis.setex(key, ttl, data)
         logger.debug(f"Working memory stored: {entry.id} (TTL={ttl}s)")
         return entry.id

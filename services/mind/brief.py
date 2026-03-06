@@ -13,7 +13,7 @@ Called via /v1/brief endpoint or scheduled at 8am daily.
 from __future__ import annotations
 
 import logging
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Any
 
 import httpx
@@ -48,8 +48,8 @@ class DailyBrief:
             await self.init()
 
         brief: dict[str, Any] = {
-            "generated_at": datetime.utcnow().isoformat(),
-            "date": datetime.utcnow().strftime("%Y-%m-%d"),
+            "generated_at": datetime.now(timezone.utc).isoformat(),
+            "date": datetime.now(timezone.utc).strftime("%Y-%m-%d"),
         }
 
         # Cluster health
@@ -74,7 +74,7 @@ class DailyBrief:
             resp = await self._client.get(f"{self.mind_url}/v1/conversations?limit=100")
             if resp.status_code == 200:
                 convs = resp.json().get("conversations", [])
-                yesterday = (datetime.utcnow() - timedelta(days=1)).isoformat()
+                yesterday = (datetime.now(timezone.utc) - timedelta(days=1)).isoformat()
                 recent = [c for c in convs if c.get("created_at", "") >= yesterday]
                 brief["activity"] = {
                     "conversations_24h": len(recent),

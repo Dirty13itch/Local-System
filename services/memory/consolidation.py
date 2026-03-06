@@ -12,7 +12,7 @@ Triggered via MIND's /v1/consolidate endpoint or cron.
 from __future__ import annotations
 
 import logging
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Any
 
 import httpx
@@ -47,7 +47,7 @@ class ConsolidationPipeline:
             await self.init()
 
         results = {
-            "started_at": datetime.utcnow().isoformat(),
+            "started_at": datetime.now(timezone.utc).isoformat(),
             "working_to_episodic": 0,
             "episodic_to_vault": 0,
             "entities_extracted": 0,
@@ -67,7 +67,7 @@ class ConsolidationPipeline:
             results["errors"].append(f"episodic_to_vault: {e}")
             logger.warning(f"Episodic→Vault failed: {e}")
 
-        results["finished_at"] = datetime.utcnow().isoformat()
+        results["finished_at"] = datetime.now(timezone.utc).isoformat()
         logger.info(
             f"Consolidation complete: "
             f"W→E={results['working_to_episodic']}, "
@@ -98,7 +98,7 @@ class ConsolidationPipeline:
                         json={
                             "content": entry.get("content", str(entry)),
                             "source": "consolidation:working",
-                            "metadata": {"original_key": key, "promoted_at": datetime.utcnow().isoformat()},
+                            "metadata": {"original_key": key, "promoted_at": datetime.now(timezone.utc).isoformat()},
                         },
                     )
                     promoted += 1
@@ -107,7 +107,7 @@ class ConsolidationPipeline:
 
     async def _archive_old_episodic(self) -> int:
         """Archive old episodic memories to vault tier."""
-        cutoff = (datetime.utcnow() - timedelta(days=self.min_episodic_age_days)).isoformat()
+        cutoff = (datetime.now(timezone.utc) - timedelta(days=self.min_episodic_age_days)).isoformat()
 
         resp = await self._client.post(
             f"{self.memory_url}/v1/memory/search",
@@ -134,7 +134,7 @@ class ConsolidationPipeline:
                     "source": "consolidation:episodic",
                     "metadata": {
                         "original_id": result.get("id"),
-                        "archived_at": datetime.utcnow().isoformat(),
+                        "archived_at": datetime.now(timezone.utc).isoformat(),
                     },
                 },
             )
