@@ -31,7 +31,7 @@ import re
 
 import httpx
 
-logger = logging.getLogger("auto_gen")
+logger = logging.getLogger("gateway.auto_gen")
 
 # ─── Configuration ────────────────────────────────────────────────────────────
 
@@ -433,7 +433,7 @@ class AutoGenerator:
                     logger.info("  submitted gen %d: %s", i, prompt_id)
 
                     # Wait for completion and save
-                    result = await self._wait_for_result(prompt_id, timeout=180)
+                    result = await self._wait_for_result(prompt_id, timeout=600)
                     if result:
                         for img_info in result:
                             filename = img_info.get("filename", "")
@@ -591,7 +591,7 @@ class AutoGenerator:
     async def _wait_for_result(
         self,
         prompt_id: str,
-        timeout: float = 180,
+        timeout: float = 600,
         poll_interval: float = 3.0,
     ) -> list[dict] | None:
         """Poll ComfyUI history until the prompt completes or timeout."""
