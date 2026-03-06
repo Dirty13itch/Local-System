@@ -12,6 +12,8 @@
 #
 # Usage: docker compose up -d
 # Note: Requires NVIDIA Container Toolkit (nvidia-ctk)
+# Note: --kv-cache-dtype fp8_e5m2 only works on athanor/vllm:custom image.
+#   athanor/vllm:v2 (NVIDIA vLLM 0.16.0) crashes during model init with FP8 KV cache.
 
 services:
   # --- Inference Models ---
@@ -80,7 +82,6 @@ services:
       --swap-space 8
       --enable-sleep-mode
       --enable-prefix-caching
-      --kv-cache-dtype fp8_e5m2
       --trust-remote-code
 
   vllm-creative:
@@ -109,7 +110,6 @@ services:
       --max-num-seqs 8
       --enable-prefix-caching
       --enable-sleep-mode
-      --kv-cache-dtype fp8_e5m2
       --swap-space 4
       --trust-remote-code
 
