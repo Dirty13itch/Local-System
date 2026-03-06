@@ -92,9 +92,20 @@ services:
     networks:
       - local-system
 
-networks:
-  local-system:
-    driver: bridge
+  mind:
+    build:
+      context: ../../
+      dockerfile: services/mind/Dockerfile
+    container_name: ls-mind
+    ports:
+      - "8710:8710"
+    env_file: ../../.env
+    environment:
+      - NODE_NAME=dev
+      - NODE_ROLE=mind
+    restart: unless-stopped
+    networks:
+      - local-system
 
   perception:
     build:
@@ -112,3 +123,7 @@ networks:
     restart: unless-stopped
     networks:
       - local-system
+
+networks:
+  local-system:
+    driver: bridge
