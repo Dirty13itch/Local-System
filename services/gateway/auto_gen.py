@@ -474,6 +474,21 @@ class AutoGenerator:
             entry.processed_at = time.time()
             logger.info("Drop '%s' complete: %d refs, %d generated", name, len(ref_files), len(generated))
 
+            # 8. Send notifications for generated content
+            try:
+                from local_system.notifications import Notifier
+
+                notifier = Notifier()
+                await notifier.init()
+                await notifier.notify_batch(
+                    title=f"🎨 {name} — {len(generated)} images generated",
+                    image_paths=[str(g) for g in generated],
+                    caption=f"Pipeline: flux | Prompts: {len(prompts)}",
+                )
+                await notifier.close()
+            except Exception as notify_err:
+                logger.warning("Notifications failed (non-fatal): %s", notify_err)
+
         except Exception as e:
             entry.status = "error"
             entry.error = str(e)
