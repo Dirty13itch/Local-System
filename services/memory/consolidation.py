@@ -129,6 +129,7 @@ class ConsolidationPipeline:
             await self._client.post(
                 f"{self.memory_url}/v1/memory/vault",
                 json={
+                    "tier": "vault",
                     "content": result.get("content", ""),
                     "source": "consolidation:episodic",
                     "metadata": {

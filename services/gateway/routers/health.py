@@ -43,9 +43,12 @@ async def cluster_health(request: Request) -> dict:
         "perception": f"http://{_dev}:{settings.ports.perception}",
     }
 
+    litellm_headers = {"Authorization": f"Bearer {settings.inference.litellm_key}"}
+
     for name, url in services.items():
         try:
-            resp = await client.get(f"{url}/health", timeout=5.0)
+            headers = litellm_headers if name == "litellm" else {}
+            resp = await client.get(f"{url}/health", headers=headers, timeout=5.0)
             results[name] = resp.json()
         except Exception as e:
             results[name] = {"status": "unreachable", "error": str(e)}
