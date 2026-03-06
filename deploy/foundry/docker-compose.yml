@@ -40,13 +40,12 @@ services:
       --tensor-parallel-size 2
       --host 0.0.0.0
       --port 8000
-      --max-model-len 16384
+      --max-model-len 8192
       --gpu-memory-utilization 0.85
       --max-num-seqs 32
       --enable-auto-tool-choice
       --tool-call-parser hermes
       --swap-space 16
-      --enable-sleep-mode
       --enable-prefix-caching
       --kv-cache-dtype fp8_e5m2
 
@@ -69,15 +68,19 @@ services:
     command: >
       python3 -m vllm.entrypoints.openai.api_server
       --model /models/GLM-4.7-Flash-GPTQ-4bit
-      --quantization gptq
+      --quantization gptq_marlin
+      --dtype float16
       --host 0.0.0.0
       --port 8002
-      --max-model-len 32768
-      --gpu-memory-utilization 0.90
+      --max-model-len 8192
+      --gpu-memory-utilization 0.92
       --max-num-seqs 8
-      --enable-prefix-caching
+      --enable-auto-tool-choice
+      --tool-call-parser hermes
+      --swap-space 8
       --enable-sleep-mode
-      --swap-space 4
+      --enable-prefix-caching
+      --kv-cache-dtype fp8_e5m2
       --trust-remote-code
 
   vllm-creative:
@@ -106,6 +109,7 @@ services:
       --max-num-seqs 8
       --enable-prefix-caching
       --enable-sleep-mode
+      --kv-cache-dtype fp8_e5m2
       --swap-space 4
       --trust-remote-code
 
