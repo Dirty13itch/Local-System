@@ -745,6 +745,7 @@ async def gallery_data() -> dict:
 
     return {
         "subjects": subjects,
+        "total_subjects": len(subjects),
         "total_images": total,
         "ratings": ratings_map,
         "feedback_summary": feedback_manager.summary(),
