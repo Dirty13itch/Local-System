@@ -1,147 +1,144 @@
 {
-  "dashboard": {
-    "title": "Local-System Cluster",
-    "uid": "ls-cluster-overview",
-    "timezone": "browser",
-    "refresh": "30s",
-    "time": {
-      "from": "now-6h",
-      "to": "now"
-    },
-    "panels": [
-      {
-        "id": 1,
-        "title": "GPU Memory Usage",
-        "type": "timeseries",
-        "gridPos": {
-          "h": 8,
-          "w": 12,
-          "x": 0,
-          "y": 0
-        },
-        "targets": [
-          {
-            "expr": "nvidia_smi_memory_used_bytes / nvidia_smi_memory_total_bytes * 100",
-            "legendFormat": "{{gpu_name}} ({{hostname}})"
-          }
-        ],
-        "fieldConfig": {
-          "defaults": {
-            "unit": "percent",
-            "max": 100
-          }
+  "title": "Local-System Cluster",
+  "uid": "ls-cluster-overview",
+  "timezone": "browser",
+  "refresh": "30s",
+  "time": {
+    "from": "now-6h",
+    "to": "now"
+  },
+  "panels": [
+    {
+      "id": 1,
+      "title": "GPU Memory Usage",
+      "type": "timeseries",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 0
+      },
+      "targets": [
+        {
+          "expr": "nvidia_smi_memory_used_bytes / nvidia_smi_memory_total_bytes * 100",
+          "legendFormat": "{{gpu_name}} ({{hostname}})"
         }
-      },
-      {
-        "id": 2,
-        "title": "GPU Temperature",
-        "type": "timeseries",
-        "gridPos": {
-          "h": 8,
-          "w": 12,
-          "x": 12,
-          "y": 0
-        },
-        "targets": [
-          {
-            "expr": "nvidia_smi_temperature_gpu",
-            "legendFormat": "{{gpu_name}} ({{hostname}})"
-          }
-        ],
-        "fieldConfig": {
-          "defaults": {
-            "unit": "celsius"
-          }
-        }
-      },
-      {
-        "id": 3,
-        "title": "Service Response Time (p95)",
-        "type": "timeseries",
-        "gridPos": {
-          "h": 8,
-          "w": 12,
-          "x": 0,
-          "y": 8
-        },
-        "targets": [
-          {
-            "expr": "histogram_quantile(0.95, rate(http_request_duration_seconds_bucket[5m]))",
-            "legendFormat": "{{handler}} (p95)"
-          }
-        ],
-        "fieldConfig": {
-          "defaults": {
-            "unit": "s"
-          }
-        }
-      },
-      {
-        "id": 4,
-        "title": "Request Rate",
-        "type": "timeseries",
-        "gridPos": {
-          "h": 8,
-          "w": 12,
-          "x": 12,
-          "y": 8
-        },
-        "targets": [
-          {
-            "expr": "rate(http_requests_total[5m])",
-            "legendFormat": "{{job}} {{method}} {{status}}"
-          }
-        ],
-        "fieldConfig": {
-          "defaults": {
-            "unit": "reqps"
-          }
-        }
-      },
-      {
-        "id": 5,
-        "title": "Memory Tier Counts",
-        "type": "stat",
-        "gridPos": {
-          "h": 4,
-          "w": 24,
-          "x": 0,
-          "y": 16
-        },
-        "targets": [
-          {
-            "expr": "memory_tier_count",
-            "legendFormat": "{{tier}}"
-          }
-        ]
-      },
-      {
-        "id": 6,
-        "title": "vLLM Tokens/sec",
-        "type": "timeseries",
-        "gridPos": {
-          "h": 8,
-          "w": 24,
-          "x": 0,
-          "y": 20
-        },
-        "targets": [
-          {
-            "expr": "rate(vllm:generation_tokens_total[5m])",
-            "legendFormat": "{{model_name}} gen tok/s"
-          },
-          {
-            "expr": "rate(vllm:prompt_tokens_total[5m])",
-            "legendFormat": "{{model_name}} prompt tok/s"
-          }
-        ],
-        "fieldConfig": {
-          "defaults": {
-            "unit": "short"
-          }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent",
+          "max": 100
         }
       }
-    ]
-  },
-  "overwrite": true
+    },
+    {
+      "id": 2,
+      "title": "GPU Temperature",
+      "type": "timeseries",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 0
+      },
+      "targets": [
+        {
+          "expr": "nvidia_smi_temperature_gpu",
+          "legendFormat": "{{gpu_name}} ({{hostname}})"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "celsius"
+        }
+      }
+    },
+    {
+      "id": 3,
+      "title": "Service Response Time (p95)",
+      "type": "timeseries",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 8
+      },
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.95, rate(http_request_duration_seconds_bucket[5m]))",
+          "legendFormat": "{{handler}} (p95)"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s"
+        }
+      }
+    },
+    {
+      "id": 4,
+      "title": "Request Rate",
+      "type": "timeseries",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 8
+      },
+      "targets": [
+        {
+          "expr": "rate(http_requests_total[5m])",
+          "legendFormat": "{{job}} {{method}} {{status}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "reqps"
+        }
+      }
+    },
+    {
+      "id": 5,
+      "title": "Memory Tier Counts",
+      "type": "stat",
+      "gridPos": {
+        "h": 4,
+        "w": 24,
+        "x": 0,
+        "y": 16
+      },
+      "targets": [
+        {
+          "expr": "memory_tier_count",
+          "legendFormat": "{{tier}}"
+        }
+      ]
+    },
+    {
+      "id": 6,
+      "title": "vLLM Tokens/sec",
+      "type": "timeseries",
+      "gridPos": {
+        "h": 8,
+        "w": 24,
+        "x": 0,
+        "y": 20
+      },
+      "targets": [
+        {
+          "expr": "rate(vllm:generation_tokens_total[5m])",
+          "legendFormat": "{{model_name}} gen tok/s"
+        },
+        {
+          "expr": "rate(vllm:prompt_tokens_total[5m])",
+          "legendFormat": "{{model_name}} prompt tok/s"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short"
+        }
+      }
+    }
+  ]
 }

@@ -145,12 +145,9 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
 
     # Initialize consolidation pipeline
     _consolidation = ConsolidationPipeline(
-        working=_working,
-        episodic=_episodic,
-        semantic=_semantic,
-        vault=_vault,
-        get_embedding=_get_embedding,
+        memory_url="http://localhost:8720",
     )
+    await _consolidation.init()
 
     tier_status = {
         "working": _working.ready,
