@@ -49,7 +49,15 @@ async def cluster_health(request: Request) -> dict:
         try:
             headers = litellm_headers if name == "litellm" else {}
             resp = await client.get(f"{url}/health", headers=headers, timeout=5.0)
-            results[name] = resp.json()
+            data = resp.json()
+            # Normalise LiteLLM health (it returns healthy_endpoints, not status)
+            if name == "litellm" and "status" not in data:
+                healthy = data.get("healthy_count", 0)
+                unhealthy = data.get("unhealthy_count", 0)
+                data["status"] = "ok" if healthy > 0 and unhealthy == 0 else (
+                    "degraded" if healthy > 0 else "down"
+                )
+            results[name] = data
         except Exception as e:
             results[name] = {"status": "unreachable", "error": str(e)}
 
