@@ -6,4 +6,4 @@ model_provider = "litellm"
 
 [model_providers.litellm]
 base_url = "http://192.168.1.203:4000/v1"
-api_key = "CHANGE-ME-your-litellm-key"
+api_key = "sk-athanor-litellm-2026"
