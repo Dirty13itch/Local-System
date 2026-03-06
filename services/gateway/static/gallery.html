@@ -1,0 +1,860 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Gallery — Local-System</title>
+<style>
+/* ─── Reset & Base ─────────────────────────────────────────────── */
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+:root {
+  --bg-primary:   #0a0a0f;
+  --bg-secondary: #13131a;
+  --bg-card:      #1a1a24;
+  --bg-hover:     #22222e;
+  --border:       #2a2a3a;
+  --text-primary: #e8e8f0;
+  --text-secondary: #8888a0;
+  --text-dim:     #55556a;
+  --accent:       #6366f1;
+  --accent-glow:  rgba(99, 102, 241, 0.25);
+  --success:      #22c55e;
+  --warning:      #f59e0b;
+  --error:        #ef4444;
+  --radius:       8px;
+  --radius-lg:    12px;
+}
+
+html { font-size: 15px; }
+body {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', sans-serif;
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  min-height: 100vh;
+  overflow-x: hidden;
+}
+
+/* ─── Header ───────────────────────────────────────────────────── */
+.header {
+  position: sticky;
+  top: 0;
+  z-index: 100;
+  background: rgba(10, 10, 15, 0.85);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border-bottom: 1px solid var(--border);
+  padding: 12px 20px;
+}
+.header-inner {
+  max-width: 1600px;
+  margin: 0 auto;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+.header-title {
+  font-size: 1.25rem;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  color: var(--text-primary);
+  white-space: nowrap;
+}
+.header-title span { color: var(--accent); }
+
+.header-stats {
+  display: flex;
+  gap: 16px;
+  font-size: 0.8rem;
+  color: var(--text-secondary);
+}
+.stat-badge {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+.stat-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  display: inline-block;
+}
+.stat-dot.done    { background: var(--success); }
+.stat-dot.pending { background: var(--warning); }
+.stat-dot.error   { background: var(--error); }
+.stat-dot.total   { background: var(--accent); }
+
+/* ─── Controls ─────────────────────────────────────────────────── */
+.controls {
+  max-width: 1600px;
+  margin: 0 auto;
+  padding: 16px 20px;
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+  align-items: center;
+}
+.search-box {
+  flex: 1;
+  min-width: 180px;
+  max-width: 400px;
+  position: relative;
+}
+.search-box input {
+  width: 100%;
+  padding: 8px 12px 8px 34px;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  color: var(--text-primary);
+  font-size: 0.9rem;
+  outline: none;
+  transition: border-color 0.2s;
+}
+.search-box input:focus { border-color: var(--accent); }
+.search-box input::placeholder { color: var(--text-dim); }
+.search-icon {
+  position: absolute;
+  left: 10px;
+  top: 50%;
+  transform: translateY(-50%);
+  color: var(--text-dim);
+  font-size: 0.85rem;
+  pointer-events: none;
+}
+
+.filter-chips {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+  flex: 2;
+  min-width: 0;
+}
+.chip {
+  padding: 5px 12px;
+  border-radius: 20px;
+  font-size: 0.78rem;
+  cursor: pointer;
+  border: 1px solid var(--border);
+  background: var(--bg-secondary);
+  color: var(--text-secondary);
+  white-space: nowrap;
+  transition: all 0.15s;
+  user-select: none;
+}
+.chip:hover { border-color: var(--accent); color: var(--text-primary); }
+.chip.active {
+  background: var(--accent);
+  color: #fff;
+  border-color: var(--accent);
+}
+
+.sort-btn {
+  padding: 8px 14px;
+  border-radius: var(--radius);
+  font-size: 0.8rem;
+  cursor: pointer;
+  border: 1px solid var(--border);
+  background: var(--bg-secondary);
+  color: var(--text-secondary);
+  transition: all 0.15s;
+  white-space: nowrap;
+}
+.sort-btn:hover { border-color: var(--accent); color: var(--text-primary); }
+
+.refresh-indicator {
+  font-size: 0.75rem;
+  color: var(--text-dim);
+  white-space: nowrap;
+}
+
+/* ─── Drop Group ───────────────────────────────────────────────── */
+.content {
+  max-width: 1600px;
+  margin: 0 auto;
+  padding: 8px 20px 40px;
+}
+
+.drop-group {
+  margin-bottom: 32px;
+}
+.drop-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 12px;
+  flex-wrap: wrap;
+}
+.drop-name {
+  font-size: 1.15rem;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+.drop-meta {
+  display: flex;
+  gap: 12px;
+  font-size: 0.75rem;
+  color: var(--text-secondary);
+}
+.drop-meta-item {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.drop-status {
+  padding: 2px 10px;
+  border-radius: 12px;
+  font-size: 0.7rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.drop-status.done       { background: rgba(34,197,94,0.15); color: var(--success); }
+.drop-status.pending    { background: rgba(245,158,11,0.15); color: var(--warning); }
+.drop-status.processing { background: rgba(99,102,241,0.15); color: var(--accent); }
+.drop-status.error      { background: rgba(239,68,68,0.15); color: var(--error); }
+
+/* ─── Image Grid ───────────────────────────────────────────────── */
+.image-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+  gap: 10px;
+}
+@media (min-width: 768px) {
+  .image-grid { grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); }
+}
+@media (min-width: 1200px) {
+  .image-grid { grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); }
+}
+
+.thumb-card {
+  position: relative;
+  aspect-ratio: 3 / 4;
+  border-radius: var(--radius);
+  overflow: hidden;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  cursor: pointer;
+  transition: transform 0.15s, border-color 0.15s, box-shadow 0.15s;
+}
+.thumb-card:hover {
+  transform: translateY(-2px);
+  border-color: var(--accent);
+  box-shadow: 0 4px 20px var(--accent-glow);
+}
+.thumb-card img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+  transition: opacity 0.3s;
+}
+.thumb-card img.loading { opacity: 0; }
+.thumb-card img.loaded  { opacity: 1; }
+
+.thumb-overlay {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  padding: 24px 10px 8px;
+  background: linear-gradient(transparent, rgba(0,0,0,0.8));
+  font-size: 0.7rem;
+  color: rgba(255,255,255,0.8);
+  opacity: 0;
+  transition: opacity 0.2s;
+}
+.thumb-card:hover .thumb-overlay { opacity: 1; }
+.thumb-filename {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* ─── Empty / Loading States ───────────────────────────────────── */
+.empty-state {
+  text-align: center;
+  padding: 80px 20px;
+  color: var(--text-dim);
+}
+.empty-state h2 {
+  font-size: 1.3rem;
+  margin-bottom: 8px;
+  color: var(--text-secondary);
+}
+.empty-state p { font-size: 0.9rem; }
+
+.loading-spinner {
+  display: inline-block;
+  width: 24px;
+  height: 24px;
+  border: 2px solid var(--border);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: spin 0.7s linear infinite;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+
+.loading-state {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  padding: 80px 20px;
+  color: var(--text-secondary);
+}
+
+/* ─── Lightbox ─────────────────────────────────────────────────── */
+.lightbox {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  background: rgba(0, 0, 0, 0.92);
+  display: none;
+  align-items: center;
+  justify-content: center;
+  flex-direction: column;
+  padding: 20px;
+  cursor: pointer;
+}
+.lightbox.open {
+  display: flex;
+  animation: fadeIn 0.2s ease;
+}
+@keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+
+.lightbox-img-wrap {
+  position: relative;
+  max-width: 95vw;
+  max-height: 85vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.lightbox-img-wrap img {
+  max-width: 95vw;
+  max-height: 85vh;
+  object-fit: contain;
+  border-radius: var(--radius);
+  cursor: default;
+  box-shadow: 0 8px 40px rgba(0,0,0,0.5);
+}
+
+.lightbox-info {
+  margin-top: 16px;
+  text-align: center;
+  color: var(--text-secondary);
+  font-size: 0.85rem;
+  cursor: default;
+  max-width: 600px;
+}
+.lightbox-info .lb-subject {
+  font-size: 1rem;
+  font-weight: 600;
+  color: var(--text-primary);
+  margin-bottom: 4px;
+}
+
+.lightbox-close {
+  position: fixed;
+  top: 16px;
+  right: 20px;
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  border: 1px solid rgba(255,255,255,0.2);
+  background: rgba(0,0,0,0.5);
+  color: #fff;
+  font-size: 1.2rem;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1001;
+  transition: background 0.15s;
+}
+.lightbox-close:hover { background: rgba(255,255,255,0.15); }
+
+.lightbox-nav {
+  position: fixed;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 44px;
+  height: 64px;
+  border: none;
+  background: rgba(0,0,0,0.4);
+  color: #fff;
+  font-size: 1.5rem;
+  cursor: pointer;
+  z-index: 1001;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--radius);
+  transition: background 0.15s;
+}
+.lightbox-nav:hover { background: rgba(255,255,255,0.15); }
+.lightbox-prev { left: 12px; }
+.lightbox-next { right: 12px; }
+
+/* ─── Toast ────────────────────────────────────────────────────── */
+.toast {
+  position: fixed;
+  bottom: 20px;
+  right: 20px;
+  padding: 10px 18px;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  color: var(--text-secondary);
+  font-size: 0.8rem;
+  z-index: 2000;
+  opacity: 0;
+  transform: translateY(10px);
+  transition: all 0.3s;
+  pointer-events: none;
+}
+.toast.show {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+/* ─── Scrollbar ────────────────────────────────────────────────── */
+::-webkit-scrollbar { width: 6px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: var(--text-dim); }
+
+/* ─── Mobile adjustments ───────────────────────────────────────── */
+@media (max-width: 480px) {
+  .header { padding: 10px 14px; }
+  .header-title { font-size: 1.05rem; }
+  .header-stats { gap: 10px; font-size: 0.72rem; }
+  .controls { padding: 12px 14px; gap: 8px; }
+  .search-box { max-width: none; }
+  .content { padding: 8px 14px 40px; }
+  .image-grid { grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 8px; }
+  .drop-name { font-size: 1rem; }
+  .lightbox-nav { width: 36px; height: 50px; font-size: 1.2rem; }
+  .lightbox-prev { left: 6px; }
+  .lightbox-next { right: 6px; }
+}
+</style>
+</head>
+<body>
+
+<!-- ─── Header ─────────────────────────────────────────────────── -->
+<header class="header">
+  <div class="header-inner">
+    <div class="header-title"><span>&#9670;</span> Gallery</div>
+    <div class="header-stats" id="headerStats">
+      <div class="stat-badge"><span class="stat-dot total"></span> <span id="statTotal">--</span> drops</div>
+      <div class="stat-badge"><span class="stat-dot done"></span> <span id="statDone">--</span> done</div>
+      <div class="stat-badge"><span class="stat-dot pending"></span> <span id="statPending">--</span> pending</div>
+      <div class="stat-badge"><span class="stat-dot error"></span> <span id="statErrors">--</span> errors</div>
+    </div>
+  </div>
+</header>
+
+<!-- ─── Controls ───────────────────────────────────────────────── -->
+<div class="controls">
+  <div class="search-box">
+    <span class="search-icon">&#128269;</span>
+    <input type="text" id="searchInput" placeholder="Filter by subject name..." autocomplete="off">
+  </div>
+  <div class="filter-chips" id="filterChips">
+    <div class="chip active" data-filter="all">All</div>
+    <div class="chip" data-filter="done">Done</div>
+    <div class="chip" data-filter="pending">Pending</div>
+    <div class="chip" data-filter="processing">Processing</div>
+    <div class="chip" data-filter="error">Error</div>
+  </div>
+  <button class="sort-btn" id="sortBtn" title="Toggle sort order">Newest first</button>
+  <div class="refresh-indicator" id="refreshIndicator">Auto-refresh: 30s</div>
+</div>
+
+<!-- ─── Content ────────────────────────────────────────────────── -->
+<main class="content" id="content">
+  <div class="loading-state" id="loadingState">
+    <div class="loading-spinner"></div>
+    <span>Loading gallery...</span>
+  </div>
+</main>
+
+<!-- ─── Lightbox ───────────────────────────────────────────────── -->
+<div class="lightbox" id="lightbox">
+  <button class="lightbox-close" id="lbClose">&times;</button>
+  <button class="lightbox-nav lightbox-prev" id="lbPrev">&#8249;</button>
+  <button class="lightbox-nav lightbox-next" id="lbNext">&#8250;</button>
+  <div class="lightbox-img-wrap">
+    <img id="lbImg" src="" alt="">
+  </div>
+  <div class="lightbox-info" id="lbInfo"></div>
+</div>
+
+<!-- ─── Toast ──────────────────────────────────────────────────── -->
+<div class="toast" id="toast"></div>
+
+<script>
+(function() {
+  'use strict';
+
+  // ─── State ──────────────────────────────────────────────────────
+  let allDrops = [];          // Array of drop objects with detail data
+  let allImages = [];         // Flat list of {drop, filename, url} for lightbox nav
+  let activeFilter = 'all';
+  let searchQuery = '';
+  let sortNewest = true;
+  let refreshTimer = null;
+  let refreshCountdown = 30;
+  let countdownInterval = null;
+  let lbIndex = -1;           // Current lightbox image index in allImages
+  let isFirstLoad = true;
+
+  // ─── DOM Refs ───────────────────────────────────────────────────
+  const $content          = document.getElementById('content');
+  const $loadingState     = document.getElementById('loadingState');
+  const $searchInput      = document.getElementById('searchInput');
+  const $filterChips      = document.getElementById('filterChips');
+  const $sortBtn          = document.getElementById('sortBtn');
+  const $refreshIndicator = document.getElementById('refreshIndicator');
+  const $lightbox         = document.getElementById('lightbox');
+  const $lbImg            = document.getElementById('lbImg');
+  const $lbInfo           = document.getElementById('lbInfo');
+  const $lbClose          = document.getElementById('lbClose');
+  const $lbPrev           = document.getElementById('lbPrev');
+  const $lbNext           = document.getElementById('lbNext');
+  const $toast            = document.getElementById('toast');
+
+  // Stats
+  const $statTotal   = document.getElementById('statTotal');
+  const $statDone    = document.getElementById('statDone');
+  const $statPending = document.getElementById('statPending');
+  const $statErrors  = document.getElementById('statErrors');
+
+  // ─── API ────────────────────────────────────────────────────────
+  const API_BASE = window.location.origin;
+
+  async function fetchJSON(path) {
+    const resp = await fetch(API_BASE + path);
+    if (!resp.ok) throw new Error(`${resp.status} ${resp.statusText}`);
+    return resp.json();
+  }
+
+  function imageURL(dropName, filename) {
+    return `${API_BASE}/v1/generate/drops/${encodeURIComponent(dropName)}/image/${encodeURIComponent(filename)}`;
+  }
+
+  // ─── Data Loading ──────────────────────────────────────────────
+  async function loadData() {
+    try {
+      const status = await fetchJSON('/v1/generate/drops');
+      const entries = status.entries || [];
+
+      // Update stats
+      $statTotal.textContent   = status.total_drops || entries.length;
+      $statDone.textContent    = status.done || 0;
+      $statPending.textContent = status.pending || 0;
+      $statErrors.textContent  = status.errors || 0;
+
+      // Fetch detail for each entry that has images (done status or output exists)
+      const detailPromises = entries.map(async (entry) => {
+        try {
+          const detail = await fetchJSON(`/v1/generate/drops/${encodeURIComponent(entry.name)}`);
+          return detail;
+        } catch (e) {
+          // Return basic entry info if detail fetch fails
+          return {
+            ...entry,
+            output_images: [],
+            manifest: null,
+          };
+        }
+      });
+
+      allDrops = await Promise.all(detailPromises);
+
+      if (isFirstLoad) {
+        $loadingState.style.display = 'none';
+        isFirstLoad = false;
+      }
+
+      render();
+      showToast('Gallery updated');
+
+    } catch (err) {
+      console.error('Failed to load gallery data:', err);
+      if (isFirstLoad) {
+        $loadingState.innerHTML =
+          '<span style="color: var(--error)">Failed to load gallery. Is the Gateway running?</span>';
+      }
+      showToast('Refresh failed');
+    }
+  }
+
+  // ─── Rendering ──────────────────────────────────────────────────
+  function render() {
+    let drops = filterAndSort(allDrops);
+
+    // Build flat image list for lightbox navigation
+    allImages = [];
+    drops.forEach(drop => {
+      const images = drop.output_images || [];
+      images.forEach(filename => {
+        allImages.push({
+          drop: drop,
+          filename: filename,
+          url: imageURL(drop.name, filename),
+        });
+      });
+    });
+
+    if (drops.length === 0) {
+      $content.innerHTML = `
+        <div class="empty-state">
+          <h2>No drops found</h2>
+          <p>${searchQuery || activeFilter !== 'all'
+            ? 'Try adjusting your filters'
+            : 'Drop reference photos into gen-drops/ on VAULT to get started'}</p>
+        </div>`;
+      return;
+    }
+
+    let html = '';
+    drops.forEach(drop => {
+      const images = drop.output_images || [];
+      const manifest = drop.manifest || {};
+      const displayName = formatName(drop.name);
+      const pipeline = manifest.pipeline || manifest.identity_method || '--';
+      const dateStr = formatDate(drop.processed_at || drop.created_at);
+      const statusClass = drop.status || 'pending';
+
+      html += `<div class="drop-group" data-name="${escapeAttr(drop.name)}">
+        <div class="drop-header">
+          <span class="drop-name">${escapeHtml(displayName)}</span>
+          <span class="drop-status ${statusClass}">${statusClass}</span>
+          <div class="drop-meta">
+            <span class="drop-meta-item">${images.length} image${images.length !== 1 ? 's' : ''}</span>
+            ${pipeline !== '--' ? `<span class="drop-meta-item">${escapeHtml(pipeline)}</span>` : ''}
+            <span class="drop-meta-item">${dateStr}</span>
+          </div>
+        </div>`;
+
+      if (images.length > 0) {
+        html += '<div class="image-grid">';
+        images.forEach((filename, idx) => {
+          const url = imageURL(drop.name, filename);
+          const globalIdx = allImages.findIndex(
+            im => im.drop.name === drop.name && im.filename === filename
+          );
+          html += `<div class="thumb-card" data-idx="${globalIdx}" onclick="Gallery.openLightbox(${globalIdx})">
+            <img src="${escapeAttr(url)}" alt="${escapeAttr(filename)}" class="loading"
+                 onload="this.classList.remove('loading');this.classList.add('loaded')"
+                 onerror="this.style.display='none'"
+                 loading="lazy">
+            <div class="thumb-overlay">
+              <div class="thumb-filename">${escapeHtml(filename)}</div>
+            </div>
+          </div>`;
+        });
+        html += '</div>';
+      } else if (statusClass === 'pending') {
+        html += '<div style="padding:20px 0;color:var(--text-dim);font-size:0.85rem;">Awaiting processing...</div>';
+      } else if (statusClass === 'processing') {
+        html += '<div style="padding:20px 0;color:var(--accent);font-size:0.85rem;display:flex;align-items:center;gap:8px;"><div class="loading-spinner"></div> Generating...</div>';
+      } else if (statusClass === 'error') {
+        html += `<div style="padding:20px 0;color:var(--error);font-size:0.85rem;">Error: ${escapeHtml(drop.error || 'Unknown error')}</div>`;
+      }
+
+      html += '</div>';
+    });
+
+    $content.innerHTML = html;
+  }
+
+  function filterAndSort(drops) {
+    let result = drops.slice();
+
+    // Status filter
+    if (activeFilter !== 'all') {
+      result = result.filter(d => d.status === activeFilter);
+    }
+
+    // Search query
+    if (searchQuery) {
+      const q = searchQuery.toLowerCase();
+      result = result.filter(d => {
+        const name = (d.name || '').toLowerCase();
+        const displayName = formatName(d.name).toLowerCase();
+        return name.includes(q) || displayName.includes(q);
+      });
+    }
+
+    // Sort
+    result.sort((a, b) => {
+      const ta = a.processed_at || a.created_at || 0;
+      const tb = b.processed_at || b.created_at || 0;
+      return sortNewest ? tb - ta : ta - tb;
+    });
+
+    return result;
+  }
+
+  // ─── Lightbox ───────────────────────────────────────────────────
+  function openLightbox(idx) {
+    if (idx < 0 || idx >= allImages.length) return;
+    lbIndex = idx;
+    updateLightbox();
+    $lightbox.classList.add('open');
+    document.body.style.overflow = 'hidden';
+  }
+
+  function closeLightbox() {
+    $lightbox.classList.remove('open');
+    document.body.style.overflow = '';
+    lbIndex = -1;
+  }
+
+  function navigateLightbox(delta) {
+    if (allImages.length === 0) return;
+    lbIndex = (lbIndex + delta + allImages.length) % allImages.length;
+    updateLightbox();
+  }
+
+  function updateLightbox() {
+    const entry = allImages[lbIndex];
+    if (!entry) return;
+    $lbImg.src = entry.url;
+    const displayName = formatName(entry.drop.name);
+    const manifest = entry.drop.manifest || {};
+    const pipeline = manifest.pipeline || manifest.identity_method || '';
+    const dateStr = formatDate(entry.drop.processed_at || entry.drop.created_at);
+
+    $lbInfo.innerHTML = `
+      <div class="lb-subject">${escapeHtml(displayName)}</div>
+      <div>${escapeHtml(entry.filename)}${pipeline ? ' &middot; ' + escapeHtml(pipeline) : ''} &middot; ${dateStr}</div>
+      <div style="color:var(--text-dim);margin-top:4px;">${lbIndex + 1} / ${allImages.length}</div>
+    `;
+  }
+
+  // Expose for onclick
+  window.Gallery = { openLightbox };
+
+  // ─── Events ─────────────────────────────────────────────────────
+
+  // Search
+  $searchInput.addEventListener('input', function() {
+    searchQuery = this.value.trim();
+    render();
+  });
+
+  // Filter chips
+  $filterChips.addEventListener('click', function(e) {
+    const chip = e.target.closest('.chip');
+    if (!chip) return;
+    $filterChips.querySelectorAll('.chip').forEach(c => c.classList.remove('active'));
+    chip.classList.add('active');
+    activeFilter = chip.dataset.filter;
+    render();
+  });
+
+  // Sort toggle
+  $sortBtn.addEventListener('click', function() {
+    sortNewest = !sortNewest;
+    $sortBtn.textContent = sortNewest ? 'Newest first' : 'Oldest first';
+    render();
+  });
+
+  // Lightbox controls
+  $lbClose.addEventListener('click', function(e) { e.stopPropagation(); closeLightbox(); });
+  $lbPrev.addEventListener('click', function(e) { e.stopPropagation(); navigateLightbox(-1); });
+  $lbNext.addEventListener('click', function(e) { e.stopPropagation(); navigateLightbox(1); });
+  $lightbox.addEventListener('click', function(e) {
+    if (e.target === $lightbox) closeLightbox();
+  });
+
+  // Keyboard navigation
+  document.addEventListener('keydown', function(e) {
+    if (!$lightbox.classList.contains('open')) return;
+    if (e.key === 'Escape') closeLightbox();
+    else if (e.key === 'ArrowLeft')  navigateLightbox(-1);
+    else if (e.key === 'ArrowRight') navigateLightbox(1);
+  });
+
+  // Touch swipe for lightbox
+  let touchStartX = 0;
+  $lightbox.addEventListener('touchstart', function(e) {
+    touchStartX = e.touches[0].clientX;
+  }, { passive: true });
+  $lightbox.addEventListener('touchend', function(e) {
+    const dx = e.changedTouches[0].clientX - touchStartX;
+    if (Math.abs(dx) > 50) {
+      navigateLightbox(dx > 0 ? -1 : 1);
+    }
+  }, { passive: true });
+
+  // ─── Auto-Refresh ──────────────────────────────────────────────
+  function startAutoRefresh() {
+    refreshCountdown = 30;
+    updateCountdownDisplay();
+
+    if (countdownInterval) clearInterval(countdownInterval);
+    countdownInterval = setInterval(() => {
+      refreshCountdown--;
+      if (refreshCountdown <= 0) {
+        loadData();
+        refreshCountdown = 30;
+      }
+      updateCountdownDisplay();
+    }, 1000);
+  }
+
+  function updateCountdownDisplay() {
+    $refreshIndicator.textContent = `Auto-refresh: ${refreshCountdown}s`;
+  }
+
+  // ─── Helpers ────────────────────────────────────────────────────
+  function formatName(name) {
+    if (!name) return '';
+    return name.replace(/[-_]+/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
+  }
+
+  function formatDate(ts) {
+    if (!ts) return '--';
+    const d = typeof ts === 'number' ? new Date(ts * 1000) : new Date(ts);
+    if (isNaN(d.getTime())) return '--';
+    const now = new Date();
+    const diff = now - d;
+    if (diff < 60000) return 'just now';
+    if (diff < 3600000) return Math.floor(diff / 60000) + 'm ago';
+    if (diff < 86400000) return Math.floor(diff / 3600000) + 'h ago';
+    if (diff < 604800000) return Math.floor(diff / 86400000) + 'd ago';
+    return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+  }
+
+  function escapeHtml(str) {
+    const div = document.createElement('div');
+    div.textContent = str || '';
+    return div.innerHTML;
+  }
+
+  function escapeAttr(str) {
+    return (str || '').replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/'/g,'&#39;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+  }
+
+  function showToast(msg) {
+    $toast.textContent = msg;
+    $toast.classList.add('show');
+    setTimeout(() => $toast.classList.remove('show'), 2000);
+  }
+
+  // ─── Init ───────────────────────────────────────────────────────
+  loadData();
+  startAutoRefresh();
+
+})();
+</script>
+</body>
+</html>

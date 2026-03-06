@@ -47,6 +47,10 @@ DESK_SHARE_PATH = os.environ.get(
 # Discord webhook for optional posting
 DISCORD_WEBHOOK_URL = os.environ.get("DISCORD_WEBHOOK_URL", "")
 
+# ntfy — self-hosted push notifications (no account needed)
+NTFY_URL = os.environ.get("NTFY_URL", "http://192.168.1.203:8880")
+NTFY_TOPIC = os.environ.get("NTFY_TOPIC", "athanor")
+
 
 class NotificationChannel:
     """Base class for notification channels."""
@@ -176,6 +180,74 @@ class DiscordChannel(NotificationChannel):
         await self._client.aclose()
 
 
+class NtfyChannel(NotificationChannel):
+    """Push notifications via ntfy — self-hosted, no account needed.
+
+    Setup:
+    1. Deploy ntfy container on VAULT: docker run -p 8880:80 binwiederhier/ntfy serve
+    2. Install ntfy app on phone (Android/iOS)
+    3. Subscribe to topic (default: "athanor") at http://192.168.1.203:8880/athanor
+    4. Images delivered inline with click-to-view in the notification
+
+    Gateway gallery link is included so user can browse all generated content.
+    """
+
+    name = "ntfy"
+
+    def __init__(self, server_url: str, topic: str, gateway_url: str = "") -> None:
+        self._server_url = server_url.rstrip("/")
+        self._topic = topic
+        self._gateway_url = gateway_url or "http://192.168.1.189:8700"
+        self._client = httpx.AsyncClient(timeout=30.0)
+
+    async def send_text(self, title: str, body: str) -> bool:
+        try:
+            resp = await self._client.post(
+                f"{self._server_url}/{self._topic}",
+                content=body,
+                headers={
+                    "Title": title,
+                    "Priority": "default",
+                    "Tags": "art,robot",
+                    "Click": f"{self._gateway_url}/gallery",
+                },
+            )
+            return resp.status_code == 200
+        except Exception as e:
+            logger.warning("ntfy text failed: %s", e)
+            return False
+
+    async def send_image(
+        self, image_path: str, caption: str = ""
+    ) -> bool:
+        try:
+            path = Path(image_path)
+            if not path.exists():
+                logger.warning("ntfy: image not found: %s", image_path)
+                return False
+
+            # ntfy supports image attachments via PUT with file
+            with open(path, "rb") as f:
+                resp = await self._client.put(
+                    f"{self._server_url}/{self._topic}",
+                    content=f.read(),
+                    headers={
+                        "Title": caption or path.stem,
+                        "Filename": path.name,
+                        "Priority": "default",
+                        "Tags": "framed_picture",
+                        "Click": f"{self._gateway_url}/gallery",
+                    },
+                )
+            return resp.status_code == 200
+        except Exception as e:
+            logger.warning("ntfy image failed: %s", e)
+            return False
+
+    async def close(self) -> None:
+        await self._client.aclose()
+
+
 class EventBusChannel(NotificationChannel):
     """Publish to Redis event bus for in-app real-time updates."""
 
@@ -291,6 +363,13 @@ class Notifier:
         if DISCORD_WEBHOOK_URL:
             self._channels.append(DiscordChannel(DISCORD_WEBHOOK_URL))
             logger.info("Notification channel: discord ✓")
+
+        # ntfy — self-hosted push notifications (always try if URL is set)
+        if NTFY_URL and NTFY_TOPIC:
+            self._channels.append(
+                NtfyChannel(NTFY_URL, NTFY_TOPIC)
+            )
+            logger.info("Notification channel: ntfy ✓ (topic=%s)", NTFY_TOPIC)
 
         # File share (if path exists)
         share_path = Path(DESK_SHARE_PATH)

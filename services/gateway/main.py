@@ -11,11 +11,14 @@ from __future__ import annotations
 import os
 import time
 from contextlib import asynccontextmanager
+from pathlib import Path
 from typing import AsyncGenerator
 
 import httpx
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse
+from fastapi.staticfiles import StaticFiles
 
 from .routers import (
     chat as chat_router,
@@ -84,6 +87,23 @@ app.include_router(tasks_router.router)
 app.include_router(generate_router.router)
 app.include_router(queens_router.router)
 app.include_router(workspaces_router.router)
+
+
+# ─── Static Files & Gallery ──────────────────────────────────────────────
+
+_static_dir = Path(__file__).parent / "static"
+if _static_dir.exists():
+    app.mount("/static", StaticFiles(directory=str(_static_dir)), name="static")
+
+
+@app.get("/gallery")
+async def gallery_page():
+    """Serve the generated content gallery — accessible from any LAN device."""
+    gallery_file = _static_dir / "gallery.html"
+    if not gallery_file.exists():
+        from fastapi.responses import PlainTextResponse
+        return PlainTextResponse("Gallery not deployed yet", status_code=503)
+    return FileResponse(str(gallery_file), media_type="text/html")
 
 
 # ─── Metrics ─────────────────────────────────────────────────────────────

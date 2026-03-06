@@ -628,6 +628,87 @@ async def serve_drop_ref(name: str, filename: str) -> StreamingResponse:
     )
 
 
+@router.get("/v1/generate/gallery")
+async def gallery_data() -> dict:
+    """Aggregated gallery data — all subjects with their generated images.
+
+    Returns a flat list of subjects, each with image URLs, metadata, and status.
+    Designed to power the /gallery web page and mobile apps.
+    """
+    import json as _json
+
+    subjects = []
+    if not OUTPUT_DIR.exists():
+        return {"subjects": [], "total_images": 0}
+
+    for subject_dir in sorted(OUTPUT_DIR.iterdir(), reverse=True):
+        if not subject_dir.is_dir():
+            continue
+
+        name = subject_dir.name
+        images = []
+        for f in sorted(subject_dir.iterdir()):
+            if f.suffix.lower() in {".jpg", ".jpeg", ".png", ".webp"}:
+                stat = f.stat()
+                images.append({
+                    "filename": f.name,
+                    "url": f"/v1/generate/drops/{name}/image/{f.name}",
+                    "size_bytes": stat.st_size,
+                    "created": stat.st_mtime,
+                    "pipeline": "faceid" if "faceid" in f.name else "flux",
+                })
+
+        if not images:
+            continue
+
+        # Load manifest for metadata
+        manifest = {}
+        manifest_path = REFS_DIR / name / "manifest.json"
+        if manifest_path.exists():
+            try:
+                manifest = _json.loads(manifest_path.read_text())
+            except Exception:
+                pass
+
+        # Check drop status
+        drop_dir = DROPS_DIR / name
+        status = "unknown"
+        if (drop_dir / ".done").exists():
+            status = "done"
+        elif (drop_dir / ".error").exists():
+            status = "error"
+        elif drop_dir.exists():
+            status = "pending"
+
+        # Reference images
+        refs = []
+        ref_dir = REFS_DIR / name
+        if ref_dir.exists():
+            for f in sorted(ref_dir.iterdir()):
+                if f.suffix.lower() in {".jpg", ".jpeg", ".png", ".webp"}:
+                    refs.append({
+                        "filename": f.name,
+                        "url": f"/v1/generate/drops/{name}/ref/{f.name}",
+                    })
+
+        subjects.append({
+            "name": name,
+            "status": status,
+            "image_count": len(images),
+            "images": images,
+            "refs": refs,
+            "prompts": manifest.get("prompts", []),
+            "context": manifest.get("context", ""),
+            "latest": max(img["created"] for img in images) if images else 0,
+        })
+
+    # Sort by most recent generation
+    subjects.sort(key=lambda s: s["latest"], reverse=True)
+    total = sum(s["image_count"] for s in subjects)
+
+    return {"subjects": subjects, "total_images": total}
+
+
 @router.post("/v1/generate/preview-prompts")
 async def preview_prompts(request: Request) -> dict:
     """Preview what the LLM would generate as image prompts for a subject."""
