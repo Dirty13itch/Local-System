@@ -17,6 +17,8 @@ const NAV_ITEMS = [
   { href: "/nodes", label: "Nodes", icon: "N" },
 ];
 
+const GALLERY_URL = `${typeof window !== "undefined" ? (process.env.NEXT_PUBLIC_API_URL || "http://192.168.1.189:8700") : ""}/gallery`;
+
 export function Sidebar() {
   const pathname = usePathname();
 
@@ -52,6 +54,20 @@ export function Sidebar() {
             {item.label}
           </Link>
         ))}
+        <div className="pt-2 mt-2 border-t border-[var(--border)]">
+          <a
+            href={GALLERY_URL}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="flex items-center gap-3 px-3 py-2 rounded-lg text-sm text-[var(--text-secondary)] hover:bg-[var(--bg-tertiary)] hover:text-[var(--text-primary)] transition-colors"
+          >
+            <span className="w-5 h-5 rounded bg-[var(--bg-tertiary)] flex items-center justify-center text-xs">
+              📷
+            </span>
+            Gallery
+            <span className="ml-auto text-[10px] text-[var(--text-secondary)]">↗</span>
+          </a>
+        </div>
       </nav>
 
       {/* Status */}

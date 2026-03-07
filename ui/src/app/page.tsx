@@ -26,6 +26,14 @@ interface ClusterService {
   uptime_hours?: number;
 }
 
+interface GallerySubject {
+  name: string;
+  status: string;
+  images: { filename: string; url: string; prompt?: string }[];
+  refs: string[];
+  processed_at?: string;
+}
+
 // ─── Helpers ──────────────────────────────────────────────────────────────
 
 function StatusDot({ status }: { status: string }) {
@@ -62,18 +70,23 @@ export default function DashboardPage() {
   const [clusterHealth, setClusterHealth] = useState<{
     services: ClusterService[];
   } | null>(null);
+  const [galleryData, setGalleryData] = useState<{
+    subjects: GallerySubject[];
+    total_images: number;
+  } | null>(null);
   const [loading, setLoading] = useState(true);
   const [lastRefresh, setLastRefresh] = useState<Date>(new Date());
 
   const fetchAll = useCallback(async () => {
     try {
-      const [healthRes, memRes, modelsRes, colRes, clusterRes] =
+      const [healthRes, memRes, modelsRes, colRes, clusterRes, galleryRes] =
         await Promise.allSettled([
           api.health(),
           api.getMemoryStats(),
           api.getModelInfo(),
           api.listCollections(),
           api.clusterHealth(),
+          fetch(`${process.env.NEXT_PUBLIC_API_URL || "http://localhost:8700"}/v1/generate/gallery`).then(r => r.json()),
         ]);
 
       if (healthRes.status === "fulfilled") setHealth(healthRes.value as any);
@@ -83,6 +96,8 @@ export default function DashboardPage() {
       if (colRes.status === "fulfilled") setCollections((colRes.value as any) || []);
       if (clusterRes.status === "fulfilled")
         setClusterHealth(clusterRes.value as any);
+      if (galleryRes.status === "fulfilled")
+        setGalleryData(galleryRes.value as any);
 
       setLastRefresh(new Date());
     } catch (e) {
@@ -318,12 +333,74 @@ export default function DashboardPage() {
         </DashCard>
       </div>
 
+      {/* Recent Generations */}
+      {galleryData && galleryData.subjects.length > 0 && (
+        <div className="rounded-xl border border-[var(--border)] bg-[var(--bg-secondary)] p-5">
+          <div className="flex items-center justify-between mb-4">
+            <div className="flex items-center gap-3">
+              <h2 className="text-sm font-semibold uppercase tracking-wider text-[var(--text-secondary)]">
+                Recent Generations
+              </h2>
+              <span className="text-xs px-2 py-0.5 rounded-full bg-[var(--bg-tertiary)] text-[var(--text-secondary)]">
+                {galleryData.total_images} images
+              </span>
+            </div>
+            <a
+              href={`${process.env.NEXT_PUBLIC_API_URL || "http://localhost:8700"}/gallery`}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-xs text-[var(--accent)] hover:text-[var(--accent-hover)] transition-colors"
+            >
+              Open Gallery &rarr;
+            </a>
+          </div>
+          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-3">
+            {galleryData.subjects
+              .filter((s) => s.status === "done" && s.images.length > 0)
+              .flatMap((s) =>
+                s.images.slice(0, 2).map((img) => ({
+                  ...img,
+                  subject: s.name,
+                }))
+              )
+              .slice(0, 12)
+              .map((img, i) => (
+                <a
+                  key={`${img.subject}-${img.filename}-${i}`}
+                  href={`${process.env.NEXT_PUBLIC_API_URL || "http://localhost:8700"}/gallery`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="group relative aspect-[3/4] rounded-lg overflow-hidden border border-[var(--border)] bg-[var(--bg-tertiary)]"
+                >
+                  <img
+                    src={img.url}
+                    alt={img.subject}
+                    className="w-full h-full object-cover transition-transform group-hover:scale-105"
+                    loading="lazy"
+                  />
+                  <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/70 to-transparent p-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                    <p className="text-xs text-white truncate">
+                      {img.subject.replace(/_/g, " ")}
+                    </p>
+                  </div>
+                </a>
+              ))}
+          </div>
+        </div>
+      )}
+
       {/* Quick Actions */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+      <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
         <QuickAction href="/generate" label="Generate Studio" icon="G" />
+        <QuickAction
+          href={`${process.env.NEXT_PUBLIC_API_URL || "http://localhost:8700"}/gallery`}
+          label="Content Gallery"
+          icon="📷"
+          external
+        />
         <QuickAction href="/memory" label="Search Memory" icon="W" />
         <QuickAction href="/documents" label="Ingest Document" icon="K" />
-        <QuickAction href="/agents" label="Agent Tasks" icon="A" />
+        <QuickAction href="/chat" label="Chat" icon="C" />
       </div>
     </div>
   );
@@ -389,11 +466,28 @@ function QuickAction({
   href,
   label,
   icon,
+  external,
 }: {
   href: string;
   label: string;
   icon: string;
+  external?: boolean;
 }) {
+  if (external) {
+    return (
+      <a
+        href={href}
+        target="_blank"
+        rel="noopener noreferrer"
+        className="flex items-center gap-3 p-3 rounded-lg border border-[var(--border)] bg-[var(--bg-secondary)] hover:bg-[var(--bg-tertiary)] transition-colors"
+      >
+        <span className="w-8 h-8 rounded-lg bg-[var(--bg-tertiary)] flex items-center justify-center text-sm font-mono text-[var(--accent)]">
+          {icon}
+        </span>
+        <span className="text-sm">{label}</span>
+      </a>
+    );
+  }
   return (
     <Link
       href={href}
