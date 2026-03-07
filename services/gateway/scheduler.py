@@ -241,12 +241,264 @@ BUILTIN_THEMES = {
                    "side lighting from window, silhouette and rim light, cinematic melancholy",
         "mode": "explicit",
     },
+
+    # ─── Hardcore sex themes — positions ───────────────────────────────
+    "hardcore-bedroom": {
+        "name": "Hardcore Bedroom",
+        "context": "Hardcore sex scene in luxury bedroom, muscular white male partner, "
+                   "explicit hard penetration, bodies intertwined on silk sheets, "
+                   "sweat-covered skin, his hand on her throat lightly choking, raw rough passion, "
+                   "her big fake tits bouncing with each thrust, slim waist gripped hard, "
+                   "shot on Arri Alexa Mini with 50mm f/1.2, warm intimate lighting, "
+                   "shallow depth of field, visible body details and skin texture",
+        "mode": "explicit",
+    },
+    "rough-doggy": {
+        "name": "Rough Doggy Style",
+        "context": "Rough doggy style sex, muscular white male pounding from behind, "
+                   "one hand gripping her slim waist, other hand pulling her hair back hard, "
+                   "arched back showing off big fake bolt-on tits hanging, "
+                   "ass slapped red with visible handprint, rough intense thrusting, "
+                   "her face showing mix of pain and pleasure, mascara starting to run, "
+                   "shot from side angle, dramatic lighting, sweat droplets on skin, "
+                   "Arri Alexa color science, RAW photo quality",
+        "mode": "explicit",
+    },
+    "cowgirl-riding": {
+        "name": "Cowgirl Riding",
+        "context": "Cowgirl position, riding muscular white male hard, "
+                   "big fake bolt-on tits bouncing violently, hands on his chest for leverage, "
+                   "slim toned body on full display, intense pleasure face, mouth open, "
+                   "his hands gripping her slim hips pulling her down hard, "
+                   "shot from below angle showing her body and bouncing tits, "
+                   "warm lighting, shallow depth of field, sweat-glistening skin, "
+                   "body oil sheen on her flat stomach and enhanced breasts",
+        "mode": "explicit",
+    },
+    "standing-fuck": {
+        "name": "Standing Against Wall",
+        "context": "Standing rough sex against luxury hotel wall, muscular white male lifting her, "
+                   "legs wrapped around waist, big fake tits pressed and squeezed against his chest, "
+                   "high heels still on, raw rough intensity, her back slamming against wall, "
+                   "his hand around her throat pinning her, mascara running, "
+                   "dramatic side lighting, city view through window, "
+                   "shot on 35mm f/1.4, cinematic composition, sweat on both bodies",
+        "mode": "explicit",
+    },
+    "missionary-rough": {
+        "name": "Missionary Rough",
+        "context": "Rough missionary sex, muscular white male on top pinning her down, "
+                   "her legs forced up over his shoulders, deep hard penetration, "
+                   "big fake tits compressed and bouncing with each thrust, "
+                   "his hand on her throat choking lightly, her face showing intense pleasure, "
+                   "mascara running, lipstick smeared, wrecked porn makeup, "
+                   "luxury hotel bed, sheets pulled off, "
+                   "shot on 85mm f/1.4, shallow depth of field, intimate aggressive framing",
+        "mode": "explicit",
+    },
+    "prone-bone": {
+        "name": "Prone Bone",
+        "context": "Prone bone position, she is lying flat face down on bed, "
+                   "muscular white male on top fucking her from behind, pressing her into mattress, "
+                   "big fake tits compressed sideways against sheets, her slim frame pinned under him, "
+                   "his hand pushing her face into pillow or gripping her hair, "
+                   "her ass raised slightly, visible rough penetration, "
+                   "shot from side angle showing both bodies stacked, dramatic bedroom lighting, "
+                   "sweat on skin, raw dominant energy, Arri Alexa color science",
+        "mode": "explicit",
+    },
+    "desk-office": {
+        "name": "Bent Over Office Desk",
+        "context": "Bent over executive desk being fucked hard from behind, muscular white male, "
+                   "pencil skirt ripped open around ankles, blouse torn showing big fake tits "
+                   "pressed flat against mahogany desk, scattered papers and knocked-over items, "
+                   "his hand on back of her head pushing her face down, other hand spanking her ass, "
+                   "floor-to-ceiling window with city view, power dynamic domination, "
+                   "volumetric office lighting, rough corporate fantasy, Arri Alexa color science",
+        "mode": "explicit",
+    },
+    "shower-sex": {
+        "name": "Shower Sex",
+        "context": "Rough sex in luxury glass shower, muscular white male, "
+                   "water cascading over intertwined bodies while he fucks her from behind, "
+                   "her big fake tits pressed hard against glass shower door with water running over them, "
+                   "steam filling frame, his hand gripping her wet hair pulling her head back, "
+                   "water droplets on bolt-on tits, her face pressed against glass, "
+                   "diffused bathroom lighting, glistening wet skin, raw aggressive energy, "
+                   "shot through glass with condensation, cinematic rough intimacy",
+        "mode": "explicit",
+    },
+
+    # ─── Hardcore sex themes — oral / rough oral ───────────────────────
+    "sloppy-blowjob-pov": {
+        "name": "Sloppy Blowjob POV",
+        "context": "POV sloppy blowjob scene, she is on her knees looking up at camera, "
+                   "big fake tits visible and covered in spit, muscular white male standing over her, "
+                   "extremely wet sloppy blowjob, long saliva strands connecting mouth to cock, "
+                   "mascara running down cheeks, lipstick smeared all over, "
+                   "full porn warpaint makeup now wrecked and messy, "
+                   "drool dripping onto her bolt-on tits, slutty eager expression, "
+                   "dramatic top-down lighting, shallow depth of field, "
+                   "close-up detail on her ruined makeup and saliva-covered face",
+        "mode": "explicit",
+    },
+    "facefuck-deepthroat": {
+        "name": "Facefuck Deepthroat",
+        "context": "Rough facefucking scene, muscular white male gripping her head with both hands, "
+                   "forcing deep throat, she is gagging and choking, tears streaming from eyes, "
+                   "mascara running in black streaks down cheeks, saliva pouring out of mouth, "
+                   "her slim body kneeling submissively, big fake bolt-on tits heaving as she gags, "
+                   "throat bulging visibly, drool coating her enhanced breasts, "
+                   "her hands gripping his thighs for stability, eyes watering looking up at him, "
+                   "dramatic harsh lighting from above, FacialAbuse/Hoby Buchanon aesthetic, "
+                   "raw degrading intensity, hyperrealistic skin and fluid detail",
+        "mode": "explicit",
+    },
+    "throatfuck-sloppy": {
+        "name": "Sloppy Throatfuck Gagging",
+        "context": "Extreme sloppy throatfuck, she is on her back with head hanging off edge of bed, "
+                   "muscular white male thrusting into her throat from above, upside-down deepthroat, "
+                   "massive amounts of saliva and throat slime coating her face and bolt-on tits, "
+                   "gagging sounds implied by her expression — mouth stretched wide, veins showing on neck, "
+                   "tears and mascara creating black streaks across forehead and temples, "
+                   "her slim stomach convulsing with gag reflex, hands on his thighs, "
+                   "big fake tits pointed upward covered in drool, nipples hard, "
+                   "harsh overhead lighting, raw brutal aesthetic, extreme close-up on throat and face",
+        "mode": "explicit",
+    },
+    "facesitting-smother": {
+        "name": "Face Sitting Smother",
+        "context": "She is sitting on muscular white male's face, grinding and smothering him, "
+                   "slim toned thighs squeezing around his head, her big fake tits on display above, "
+                   "hands gripping headboard for leverage, head thrown back in pleasure, "
+                   "dominant powerful expression, full porn makeup intact, body oil sheen, "
+                   "his hands gripping her slim hips and ass from below, "
+                   "shot from front showing her enhanced body in full glory while riding his face, "
+                   "luxury bedroom setting, warm dramatic lighting, shallow depth of field, "
+                   "power reversal dynamic, her in complete control",
+        "mode": "explicit",
+    },
+
+    # ─── Hardcore sex themes — rough / degradation ─────────────────────
+    "rough-choking-fuck": {
+        "name": "Rough Choking Sex",
+        "context": "Rough choking sex, muscular white male has one hand firmly around her throat, "
+                   "other hand gripping her slim waist while fucking her hard against headboard, "
+                   "her face showing intense submissive pleasure, eyes rolling back, mouth open gasping, "
+                   "big fake bolt-on tits bouncing violently, mascara running, lipstick smeared, "
+                   "visible finger marks on her throat and slim body, sweat glistening, "
+                   "her slim frame being ragdolled by his strength, "
+                   "dramatic side lighting casting shadows across both bodies, "
+                   "raw aggressive dominant energy, luxury dark bedroom, "
+                   "Arri Alexa Mini, shallow depth of field on her face",
+        "mode": "explicit",
+    },
+    "rough-anal": {
+        "name": "Rough Anal",
+        "context": "Rough anal sex, muscular white male penetrating her ass hard from behind, "
+                   "she is bent over gripping sheets, face showing intense mix of pain and pleasure, "
+                   "mouth open wide, teeth clenched, mascara running, makeup wrecked, "
+                   "her big fake bolt-on tits swinging beneath her slim frame, "
+                   "his hand pulling her hair back exposing her face to camera, "
+                   "other hand spreading her ass, visible anal penetration and stretching, "
+                   "sweat dripping down her arched spine, body oil on skin, "
+                   "dramatic hard lighting, dark luxury bedroom, raw brutal energy, "
+                   "extreme detail on skin texture and body contact",
+        "mode": "explicit",
+    },
+    "hair-pulling-behind": {
+        "name": "Hair Pulling From Behind",
+        "context": "Fucked hard from behind while being pulled up by her hair, "
+                   "muscular white male has fistful of her hair yanking her head back sharply, "
+                   "her back arched extremely showing off slim waist and big fake bolt-on tits thrust forward, "
+                   "face pulled toward camera showing wrecked makeup — mascara tears, smeared lipstick, "
+                   "drool on chin, eyes half-closed in pain-pleasure, "
+                   "his other arm wrapped around her slim waist or throat, "
+                   "visible rough penetration from behind, her body bouncing with each thrust, "
+                   "shot from front-side angle, dramatic lighting, luxury hotel room, "
+                   "raw rough pornstar aesthetic, Arri Alexa color science",
+        "mode": "explicit",
+    },
+    "slapping-degradation": {
+        "name": "Slapping Degradation",
+        "context": "Degrading rough sex with face slapping, muscular white male slapping her face "
+                   "mid-fuck while she takes it submissively, red handprint visible on cheek, "
+                   "mascara streaming, lipstick completely destroyed, spit on her face, "
+                   "her big fake bolt-on tits exposed and bouncing, slim body being used roughly, "
+                   "she is on her back or knees looking up with wrecked submissive expression, "
+                   "her makeup destroyed — black mascara tears, smeared red lips, drool, "
+                   "dramatic harsh lighting creating stark shadows, "
+                   "raw degradation aesthetic, Assylum/rough content energy, "
+                   "extreme close-up detail on her wrecked face and body",
+        "mode": "explicit",
+    },
+
+    # ─── Hardcore sex themes — scenarios ────────────────────────────────
+    "gangbang-center": {
+        "name": "Gangbang Center of Attention",
+        "context": "Gangbang scene, she is the center of attention surrounded by 3 muscular white males, "
+                   "one fucking her from behind while she sucks another, third waiting or stroking, "
+                   "her slim body being used from multiple angles, big fake bolt-on tits swinging, "
+                   "spit-roasted position, saliva strands from her mouth, mascara running, "
+                   "completely wrecked slutty appearance, full body covered in sweat, "
+                   "her slim frame emphasized against the larger male bodies surrounding her, "
+                   "dramatic multi-directional lighting, luxury penthouse setting, "
+                   "wide shot showing full scene composition, raw group sex energy, "
+                   "Arri Alexa Mini, cinematic multi-subject framing",
+        "mode": "explicit",
+    },
+    "tied-restrained": {
+        "name": "Tied and Restrained",
+        "context": "Restrained bondage sex, she is tied to luxury bed with silk restraints on wrists, "
+                   "spread eagle or arms above head bound to headboard, completely helpless, "
+                   "muscular white male fucking her hard while she cannot move, "
+                   "big fake bolt-on tits fully exposed and bouncing, slim body stretched out, "
+                   "blindfolded or ball-gagged optional, mascara running from tears, "
+                   "her face showing helpless intense pleasure, body arching against restraints, "
+                   "dramatic chiaroscuro lighting, dark luxury dungeon or bedroom, "
+                   "silk and leather textures, power imbalance aesthetic, "
+                   "shot on 50mm f/1.2, shallow depth on her restrained body",
+        "mode": "explicit",
+    },
+    "pool-outdoor-fuck": {
+        "name": "Pool Outdoor Rough",
+        "context": "Rough outdoor sex by luxury infinity pool, muscular white male fucking her "
+                   "bent over pool edge, her big fake bolt-on tits hanging over the water, "
+                   "sun-kissed body oil sheen on her slim tanned frame, "
+                   "wet hair slicked back, bikini torn off and discarded nearby, "
+                   "his hand pushing her face toward the water surface or gripping her hair, "
+                   "other hand slapping her wet ass, water splashing from rough action, "
+                   "golden hour sunlight backlighting their bodies, lens flare, "
+                   "tropical luxury villa background, palm trees, "
+                   "shot on 85mm f/1.4 with warm golden tones, outdoor exhibitionism energy",
+        "mode": "explicit",
+    },
+    "pile-driver": {
+        "name": "Pile Driver Position",
+        "context": "Pile driver position, she is folded in half on her upper back with legs over her head, "
+                   "muscular white male standing over her thrusting straight down into her, "
+                   "her big fake bolt-on tits pushed up toward her face by gravity, "
+                   "slim body folded showing flexibility and vulnerability, "
+                   "face visible between her own legs showing wrecked expression — mascara running, "
+                   "mouth open gasping, completely submitted and dominated, "
+                   "his hands on her ankles holding her legs apart, "
+                   "dramatic overhead lighting, luxury bed, "
+                   "extreme position showing her enhanced body from aggressive angle, "
+                   "Arri Alexa color science, raw dominant energy",
+        "mode": "explicit",
+    },
 }
 
 
 @dataclass
 class SubjectConfig:
-    """Configuration for a generation subject."""
+    """Configuration for a generation subject.
+
+    subject_type:
+        "performer" — looks up performer DB for physical attributes (default)
+        "custom"    — uses body_description, appearance_notes, style_direction
+                      directly in prompt generation (user-defined characters)
+    """
     name: str
     display_name: str = ""
     enabled: bool = True
@@ -258,6 +510,13 @@ class SubjectConfig:
     total_generated: int = 0
     priority: int = 1  # Higher = more frequent selection
     notes: str = ""
+
+    # ─── Custom character fields ──────────────────────────────────────
+    subject_type: str = "performer"    # "performer" | "custom"
+    body_description: str = ""         # "slim, athletic, tattooed, natural breasts, 5'6""
+    appearance_notes: str = ""         # "short black hair, green eyes, sleeve tattoo left arm"
+    style_direction: str = ""          # "goth aesthetic, dark makeup, leather"
+    custom_attributes: str = ""        # freeform JSON or text for anything else
 
     @property
     def ref_dir(self) -> Path:
@@ -582,7 +841,12 @@ class GenScheduler:
                 "total_generated": s.total_generated,
                 "priority": s.priority,
                 "mode": s.mode,
+                "subject_type": s.subject_type,
             }
+            if s.subject_type == "custom":
+                info["body_description"] = s.body_description
+                info["appearance_notes"] = s.appearance_notes
+                info["style_direction"] = s.style_direction
             if s.last_generated:
                 info["last_generated"] = time.strftime(
                     "%Y-%m-%d %H:%M", time.localtime(s.last_generated)
@@ -612,6 +876,10 @@ class GenScheduler:
             "available_themes": list(BUILTIN_THEMES.keys()),
         }
 
+    def get_subject(self, name: str) -> SubjectConfig | None:
+        """Get a subject config by name."""
+        return self._subjects.get(name)
+
     def add_subject(
         self,
         name: str,
@@ -619,14 +887,30 @@ class GenScheduler:
         themes: list[str] | None = None,
         mode: str = "explicit",
         priority: int = 1,
+        subject_type: str = "performer",
+        body_description: str = "",
+        appearance_notes: str = "",
+        style_direction: str = "",
+        custom_attributes: str = "",
     ) -> SubjectConfig:
-        """Register a new subject (reference images must be added to the folder)."""
+        """Register a new subject (reference images must be added to the folder).
+
+        For custom characters (subject_type="custom"), provide body_description,
+        appearance_notes, and/or style_direction to control prompt generation.
+        For performers (subject_type="performer"), the pipeline looks up the
+        performer database for physical attributes instead.
+        """
         subject = SubjectConfig(
             name=name,
             display_name=display_name or name.replace("-", " ").replace("_", " ").title(),
             themes=themes or list(BUILTIN_THEMES.keys()),
             mode=mode,
             priority=priority,
+            subject_type=subject_type,
+            body_description=body_description,
+            appearance_notes=appearance_notes,
+            style_direction=style_direction,
+            custom_attributes=custom_attributes,
         )
         subject.ref_dir.mkdir(parents=True, exist_ok=True)
         self._subjects[name] = subject

@@ -41,10 +41,19 @@ from .scheduler import gen_scheduler
 settings = get_settings()
 logger = setup_logging("gateway", settings)
 
-# Allowed CORS origins — configured via env, defaults to local dev
+# Allowed CORS origins — configured via env, defaults to LAN + local dev
 _cors_origins = os.environ.get(
     "CORS_ORIGINS",
-    f"http://localhost:3000,http://localhost:3001,http://192.168.1.189:3000,http://192.168.1.50:3000,http://{settings.network.vault}:3001,http://{settings.network.dev}:3000",
+    ",".join([
+        "http://localhost:3000",
+        "http://localhost:3001",
+        f"http://{settings.network.dev}:3001",   # UI on DEV
+        f"http://{settings.network.dev}:3000",   # dev alt port
+        f"http://{settings.network.vault}:3001",  # if UI moves to VAULT
+        f"http://{settings.network.vault}:3000",  # Grafana on VAULT
+        "http://192.168.1.50:3001",               # DESK direct
+        "http://192.168.1.50:3000",               # DESK alt
+    ]),
 ).split(",")
 
 # ComfyUI URL — runs on WORKSHOP, shared with auto_gen scanner

@@ -464,14 +464,32 @@ async def generate_inpaint(request: Request, body: InpaintRequest) -> GenerateIm
 async def search_performers(
     q: str = "",
     min_rating: float = 0.0,
+    min_gen_suitability: int = 0,
+    tier: str | None = None,
+    implants_only: bool = False,
+    bimbo_subtype: str | None = None,
     favorites_only: bool = False,
+    sort_by: str = "gen_suitability",
     limit: int = 50,
 ) -> list[PerformerInfo]:
-    """Search the performer database."""
+    """Search the performer database.
+
+    Filters:
+        q: Name/alias search
+        min_rating: Minimum 1-10 rating
+        min_gen_suitability: Minimum 0-100 composite score
+        tier: Filter by S/A/B tier
+        implants_only: Only show performers with implants
+        bimbo_subtype: Filter by subtype (e.g. "Tits on a Stick")
+        favorites_only: Only show favorites
+
+    Sort options: gen_suitability, rating, bimbo_score, style_match, name
+    """
     performers = _load_performers()
     results = []
 
     for p in performers:
+        # Parse rating
         rating = p.get("rating") or 0
         if isinstance(rating, str):
             try:
@@ -483,44 +501,310 @@ async def search_performers(
 
         if rating < min_rating:
             continue
-        if favorites_only and not p.get("isFavorite", False):
+
+        # Gen suitability filter
+        gen_suit = int(p.get("gen_suitability", 0) or 0)
+        if gen_suit < min_gen_suitability:
             continue
+
+        # Tier filter
+        if tier and p.get("tier", "") != tier.upper():
+            continue
+
+        # Implants filter
+        impl_raw = p.get("implants")
+        if isinstance(impl_raw, bool):
+            implants = impl_raw
+        elif isinstance(impl_raw, str):
+            implants = impl_raw.lower() in ("yes", "true", "1")
+        else:
+            implants = None
+        if implants_only and not implants:
+            continue
+
+        # Bimbo subtype filter
+        if bimbo_subtype:
+            subtype = (p.get("bimbo_subtype") or "").lower()
+            if bimbo_subtype.lower() not in subtype:
+                continue
+
+        # Favorites filter
+        if favorites_only and not p.get("is_favorite", p.get("isFavorite", False)):
+            continue
+
+        # Name search
         if q:
             name = (p.get("name") or "").lower()
             aliases = (p.get("aliases") or "").lower()
             if q.lower() not in name and q.lower() not in aliases:
                 continue
 
-        career_start = p.get("careerStart")
-        career_end = p.get("careerEnd")
-        if career_start is not None:
-            career_start = str(career_start)
-        if career_end is not None:
-            career_end = str(career_end)
+        # String-safe helpers
+        def _str(key: str, fallback: str = "") -> str:
+            v = p.get(key)
+            return str(v) if v is not None else fallback
 
-        impl_raw = str(p.get("implants", "")).lower()
-        implants: bool | None = (
-            True if impl_raw == "yes"
-            else False if impl_raw == "no"
-            else None
-        )
+        def _strnone(key: str) -> str | None:
+            v = p.get(key)
+            return str(v) if v is not None else None
+
+        def _intnone(key: str) -> int | None:
+            v = p.get(key)
+            if v is None:
+                return None
+            try:
+                return int(v)
+            except (ValueError, TypeError):
+                return None
+
+        # Count reference images for this performer
+        slug = (p.get("name") or "").lower().replace(" ", "-")
+        slug = re.sub(r"[^a-z0-9-]", "", slug)
+        ref_count = 0
+        is_subject = False
+        from ..scheduler import SUBJECTS_DIR
+        ref_dir = SUBJECTS_DIR / slug
+        if ref_dir.exists():
+            ref_count = sum(
+                1 for f in ref_dir.iterdir()
+                if f.suffix.lower() in {".jpg", ".jpeg", ".png", ".webp"}
+            )
+        # Check if active in scheduler
+        is_subject = slug in gen_scheduler._subjects
 
         results.append(PerformerInfo(
             name=p.get("name", ""),
+            aliases=_str("aliases"),
             rating=float(rating),
-            height=p.get("height"),
-            bust=p.get("braSize"),
+            gen_suitability=gen_suit,
+            tier=_str("tier"),
+            bimbo_score=int(p.get("bimbo_score", 0) or 0),
+            bimbo_match_pct=int(p.get("bimbo_match_pct", 0) or 0),
+            bimbo_subtype=_str("bimbo_subtype"),
+            viewing_priority=_str("viewing_priority"),
+            style_match=int(p.get("style_match", 0) or 0),
+            content_areas=_str("content_areas"),
+            height=_strnone("height"),
+            weight=_strnone("weight"),
+            bust=_strnone("bust") or _strnone("braSize"),
+            waist=_strnone("waist"),
+            hip=_strnone("hip"),
+            bust_waist_hip=_strnone("bust_waist_hip"),
+            bust_to_frame=_strnone("bust_to_frame"),
+            body_type=_strnone("body_type") or _strnone("bodyType"),
             implants=implants,
-            body_type=p.get("bodyType"),
-            ethnicity=p.get("ethnicity"),
-            nationality=p.get("nationality"),
-            career_start=career_start,
-            career_end=career_end,
-            is_favorite=p.get("isFavorite", False),
+            implant_status=_strnone("implant_status"),
+            ethnicity=_strnone("ethnicity"),
+            nationality=_strnone("nationality"),
+            career_start=_strnone("career_start") or _strnone("careerStart"),
+            career_end=_strnone("career_end") or _strnone("careerEnd"),
+            career_peak=_strnone("career_peak"),
+            years_active=_intnone("years_active"),
+            total_scenes=_intnone("total_scenes"),
+            studios=_str("studios"),
+            signature_attributes=_str("signature_attributes"),
+            content_specialization=_str("content_specialization"),
+            is_favorite=p.get("is_favorite", p.get("isFavorite", False)),
+            is_subject=is_subject,
+            reference_count=ref_count,
         ))
 
-    results.sort(key=lambda x: x.rating, reverse=True)
+    # Sort
+    sort_keys = {
+        "gen_suitability": lambda x: x.gen_suitability,
+        "rating": lambda x: x.rating,
+        "bimbo_score": lambda x: x.bimbo_score,
+        "style_match": lambda x: x.style_match,
+        "name": lambda x: x.name.lower(),
+    }
+    sort_fn = sort_keys.get(sort_by, sort_keys["gen_suitability"])
+    reverse = sort_by != "name"
+    results.sort(key=sort_fn, reverse=reverse)
     return results[:limit]
+
+
+@router.post("/v1/generate/performers/{name}/activate")
+async def activate_performer(name: str, request: Request) -> dict:
+    """Activate a performer as a scheduler subject for autonomous generation.
+
+    Creates the subject directory and registers in scheduler.
+    Reference images must be placed in gen-subjects/{slug}/ separately.
+    """
+    body = await request.json() if request.headers.get("content-type") == "application/json" else {}
+    priority = body.get("priority")
+
+    slug = re.sub(r"[^a-z0-9]+", "-", name.lower()).strip("-")
+
+    # Look up performer in DB for tier-based priority
+    performers = _load_performers()
+    performer = None
+    for p in performers:
+        p_slug = re.sub(r"[^a-z0-9]+", "-", (p.get("name") or "").lower()).strip("-")
+        if p_slug == slug:
+            performer = p
+            break
+
+    # Set priority based on tier if not explicitly provided
+    if priority is None:
+        tier = (performer or {}).get("tier", "")
+        priority = {"S": 8, "A": 6, "B": 5}.get(tier, 3)
+
+    # Create subject in scheduler
+    from ..scheduler import SUBJECTS_DIR
+    ref_dir = SUBJECTS_DIR / slug
+    ref_dir.mkdir(parents=True, exist_ok=True)
+
+    subject = gen_scheduler.add_subject(
+        name=slug,
+        display_name=name,
+        priority=priority,
+        mode="explicit",
+        subject_type="performer",
+    )
+
+    ref_count = sum(
+        1 for f in ref_dir.iterdir()
+        if f.suffix.lower() in {".jpg", ".jpeg", ".png", ".webp"}
+    ) if ref_dir.exists() else 0
+
+    return {
+        "status": "activated",
+        "slug": slug,
+        "display_name": name,
+        "priority": priority,
+        "ref_dir": str(ref_dir),
+        "ref_count": ref_count,
+        "has_refs": ref_count > 0,
+        "themes": len(subject.themes),
+        "note": "Drop reference images into the ref_dir to enable generation" if ref_count == 0 else None,
+    }
+
+
+# ─── Custom Characters ──────────────────────────────────────────────────
+
+
+@router.post("/v1/generate/characters")
+async def create_custom_character(request: Request) -> dict:
+    """Create a custom character (non-pornstar) for autonomous generation.
+
+    Custom characters use user-provided body descriptions instead of
+    looking up the performer database. Drop reference images into the
+    returned ref_dir path to enable generation.
+    """
+    body = await request.json()
+    name = body.get("name", "")
+    if not name:
+        raise HTTPException(status_code=400, detail="'name' is required")
+
+    slug = re.sub(r"[^a-z0-9]+", "-", name.lower()).strip("-")
+
+    subject = gen_scheduler.add_subject(
+        name=slug,
+        display_name=name,
+        priority=body.get("priority", 5),
+        mode=body.get("mode", "explicit"),
+        themes=body.get("themes"),
+        subject_type="custom",
+        body_description=body.get("body_description", ""),
+        appearance_notes=body.get("appearance_notes", ""),
+        style_direction=body.get("style_direction", ""),
+        custom_attributes=body.get("custom_attributes", ""),
+    )
+
+    from ..scheduler import SUBJECTS_DIR
+    ref_dir = SUBJECTS_DIR / slug
+
+    return {
+        "status": "created",
+        "slug": slug,
+        "display_name": name,
+        "subject_type": "custom",
+        "ref_dir": str(ref_dir),
+        "body_description": subject.body_description,
+        "appearance_notes": subject.appearance_notes,
+        "style_direction": subject.style_direction,
+        "note": "Drop reference images into ref_dir to enable generation",
+    }
+
+
+@router.put("/v1/generate/characters/{slug}")
+async def update_custom_character(slug: str, request: Request) -> dict:
+    """Update a custom character's attributes."""
+    subject = gen_scheduler.get_subject(slug)
+    if not subject:
+        raise HTTPException(status_code=404, detail=f"Character not found: {slug}")
+
+    body = await request.json()
+    if "body_description" in body:
+        subject.body_description = body["body_description"]
+    if "appearance_notes" in body:
+        subject.appearance_notes = body["appearance_notes"]
+    if "style_direction" in body:
+        subject.style_direction = body["style_direction"]
+    if "custom_attributes" in body:
+        subject.custom_attributes = body["custom_attributes"]
+    if "display_name" in body:
+        subject.display_name = body["display_name"]
+    if "priority" in body:
+        subject.priority = body["priority"]
+    if "enabled" in body:
+        subject.enabled = body["enabled"]
+    if "mode" in body:
+        subject.mode = body["mode"]
+    if "themes" in body:
+        subject.themes = body["themes"]
+
+    gen_scheduler.save_config()
+
+    return {
+        "status": "updated",
+        "slug": slug,
+        "subject_type": subject.subject_type,
+        "body_description": subject.body_description,
+        "appearance_notes": subject.appearance_notes,
+        "style_direction": subject.style_direction,
+    }
+
+
+@router.get("/v1/generate/characters")
+async def list_characters(subject_type: str | None = None) -> list[dict]:
+    """List all characters/subjects (custom and performers).
+
+    Filter by subject_type: "custom" or "performer" (or omit for all).
+    """
+    from ..scheduler import SUBJECTS_DIR
+
+    results = []
+    for name, s in gen_scheduler._subjects.items():
+        if subject_type and s.subject_type != subject_type:
+            continue
+
+        ref_dir = SUBJECTS_DIR / name
+        ref_count = sum(
+            1 for f in ref_dir.iterdir()
+            if f.suffix.lower() in {".jpg", ".jpeg", ".png", ".webp"}
+        ) if ref_dir.exists() else 0
+
+        info = {
+            "slug": name,
+            "display_name": s.display_name or name,
+            "subject_type": s.subject_type,
+            "enabled": s.enabled,
+            "has_refs": ref_count > 0,
+            "ref_count": ref_count,
+            "priority": s.priority,
+            "mode": s.mode,
+            "total_generated": s.total_generated,
+            "themes": len(s.themes) if s.themes else 0,
+        }
+        if s.subject_type == "custom":
+            info["body_description"] = s.body_description
+            info["appearance_notes"] = s.appearance_notes
+            info["style_direction"] = s.style_direction
+        results.append(info)
+
+    results.sort(key=lambda x: x.get("priority", 0), reverse=True)
+    return results
 
 
 # ─── Auto-Generation (Drop Folder) ──────────────────────────────────────

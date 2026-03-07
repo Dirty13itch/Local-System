@@ -507,6 +507,25 @@ class ApiClient {
     return `${this.baseUrl}/v1/generate/drops/${encodeURIComponent(name)}/ref/${encodeURIComponent(filename)}`;
   }
 
+  // ─── Gallery ──────────────────────────────────────────────────────────
+
+  async fetchGallery(): Promise<GalleryResponse> {
+    try {
+      const resp = await fetch(`${this.baseUrl}/v1/generate/gallery`);
+      return resp.json();
+    } catch {
+      return { subjects: [], total_subjects: 0, total_images: 0, ratings: {}, feedback_summary: { total_rated: 0, total_good: 0, total_bad: 0, preferences_active: false } };
+    }
+  }
+
+  async rateImage(subject: string, filename: string, rating: "good" | "bad", prompt?: string, notes?: string): Promise<void> {
+    await fetch(`${this.baseUrl}/v1/generate/feedback/rate`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ subject, filename, rating, prompt, notes }),
+    });
+  }
+
   // ─── Training ─────────────────────────────────────────────────────────
 
   async startTraining(params: {
@@ -942,6 +961,49 @@ export interface DropDetail extends DropEntry {
     identity_method: string;
   };
   output_images?: string[];
+}
+
+// ─── Gallery Types ──────────────────────────────────────────────────────────
+
+export interface GalleryImage {
+  filename: string;
+  url: string;
+  size_bytes: number;
+  created: number;
+  pipeline: string;
+  identity_method: string;
+}
+
+export interface GalleryRef {
+  filename: string;
+  url: string;
+}
+
+export interface GallerySubject {
+  name: string;
+  status: string;
+  image_count: number;
+  images: GalleryImage[];
+  refs: GalleryRef[];
+  prompts: string[];
+  context: string;
+  pipeline: string;
+  identity_method: string;
+  processed_at: string;
+  latest: number;
+}
+
+export interface GalleryResponse {
+  subjects: GallerySubject[];
+  total_subjects: number;
+  total_images: number;
+  ratings: Record<string, string>;
+  feedback_summary: {
+    total_rated: number;
+    total_good: number;
+    total_bad: number;
+    preferences_active: boolean;
+  };
 }
 
 export const api = new ApiClient(BASE_URL);

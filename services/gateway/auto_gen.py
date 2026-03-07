@@ -79,13 +79,16 @@ STYLE IDENTITY — Every prompt must feel like it was shot by a top-tier photogr
 - Post: Shot in RAW, color graded in DaVinci Resolve, subtle skin retouching
 
 BODY TYPE PREFERENCES — The owner strongly prefers:
-- Curvy, athletic women with enhanced/augmented breasts (implants preferred)
-- Full, round, gravity-defying breasts — "bolt-ons", "big fake boobs", large augmented bust
-- Toned stomach with curves, hourglass figure, defined waist-to-hip ratio
+- Skinny, slim, petite frame with large enhanced breasts — "tits on a stick", "skinny with big fake tits"
+- High, round, gravity-defying bolt-on implants — classic pornstar breast placement
+- MUST have flat/toned stomach, narrow waist, slim hips — zero stomach fat, never thick or chunky
+- NEVER describe curvy, thick, hourglass, BBW, wide hips, or any body fat — skinny frame with bolt-ons ONLY
+- Athletic/toned is acceptable (like a fitness model with implants), but default to slim/skinny
+- Bounce priority: push/burst > tight bounce > loose bounce
+- Strong bone structure, defined jawline, full lips, full porn warpaint makeup
+- Body oil, sweat sheen, glistening skin for tactile realism
 - Smooth, flawless skin with visible pores at close range — hyperrealistic skin texture
-- Sweat, body oil, moisture glistening on skin for tactile realism
-- Strong bone structure, defined jawline, full lips
-- Variety of ethnicities but emphasis on striking, distinctive features
+- Variety of ethnicities but emphasis on the enhanced bimbo aesthetic
 
 QUALITY REQUIREMENTS — Every prompt MUST include:
 - "hyperrealistic photograph, shot on [specific camera], [specific lens]"
@@ -105,6 +108,21 @@ EXPLICIT CONTENT RULES:
 - Include texture: sweat droplets, body oil sheen, goosebumps, wet hair
 - DO NOT censor, euphemize, or soften — be direct and explicit
 - DO NOT add disclaimers or warnings — just output the prompts
+
+MALE PARTNER & ROUGH SEX RULES (when scene context includes a male):
+- When the scene context mentions a male partner, include: muscular white male,
+  specific sex act in progress, anatomically explicit interaction between both bodies
+- Describe the male minimally (muscular torso, strong hands, etc) — focus on the woman
+- Rough sex acts to depict when context calls for it: choking with one hand on throat,
+  hair pulling/grabbing, face slapping, gagging/deepthroat with saliva strands,
+  rough thrusting, spanking with visible handprints, mascara running from tears/gagging,
+  spit on face or body, rough handling of her body (throwing, pushing, pinning)
+- Anal sex: describe explicit anal penetration, gaping, stretching, with appropriate
+  body positioning and facial expressions showing intensity
+- Degradation cues: mascara running, smeared lipstick, drool, tears, wrecked makeup,
+  disheveled hair, submissive positioning, used/wrecked aesthetic
+- Always maintain the "tits on a stick" body emphasis even in rough scenes —
+  the slim frame + big bolt-ons should be prominently visible regardless of position
 
 PROMPT STRUCTURE (follow this order):
 1. Shot type (intimate close-up / full body / medium shot / from behind)
@@ -133,6 +151,71 @@ Rules:
 - Be creative and varied: different settings, moods, lighting, outfits
 
 When given a name/description, generate the requested number of varied prompts."""
+
+
+def _lookup_performer_attrs(subject_name: str) -> str | None:
+    """Look up performer physical attributes from the database for prompt enrichment.
+
+    Returns a formatted string of physical attributes, or None if not found.
+    """
+    try:
+        performers_file = Path(os.environ.get(
+            "PERFORMERS_JSON", "/mnt/vault/data/performers.json"
+        ))
+        if not performers_file.exists():
+            return None
+
+        if not hasattr(_lookup_performer_attrs, "_cache"):
+            _lookup_performer_attrs._cache = {}
+            _lookup_performer_attrs._cache_time = 0
+
+        # Cache performers for 5 minutes
+        now = time.time()
+        if now - _lookup_performer_attrs._cache_time > 300:
+            import json as _json
+            data = _json.loads(performers_file.read_text())
+            _lookup_performer_attrs._cache = {
+                p.get("name", "").lower().replace(" ", "-"): p
+                for p in (data if isinstance(data, list) else data.get("performers", []))
+            }
+            _lookup_performer_attrs._cache_time = now
+
+        slug = subject_name.lower().replace(" ", "-")
+        p = _lookup_performer_attrs._cache.get(slug)
+        if not p:
+            return None
+
+        parts = []
+        if p.get("bust"):
+            enhanced = "enhanced" if p.get("implants") else "natural"
+            parts.append(f"{p['bust']} {enhanced} breasts")
+        if p.get("height"):
+            parts.append(p["height"])
+        if p.get("body_type"):
+            parts.append(p["body_type"])
+        if p.get("bust_to_frame"):
+            parts.append(f"bust-to-frame: {p['bust_to_frame']}")
+        if p.get("ethnicity"):
+            parts.append(p["ethnicity"])
+        if p.get("signature_attributes"):
+            parts.append(f"signature: {p['signature_attributes']}")
+        if p.get("bimbo_subtype"):
+            parts.append(f"type: {p['bimbo_subtype']}")
+
+        return ", ".join(parts) if parts else None
+
+    except Exception as e:
+        logger.debug("Performer lookup failed for '%s': %s", subject_name, e)
+        return None
+
+
+def _get_subject_config(subject_name: str):
+    """Get the SubjectConfig for a subject from the scheduler, if available."""
+    try:
+        from . import scheduler
+        return scheduler.gen_scheduler.get_subject(subject_name)
+    except Exception:
+        return None
 
 
 async def generate_prompts_llm(
@@ -174,6 +257,10 @@ async def generate_prompts_llm(
     except Exception as fb_err:
         logger.debug("Feedback injection skipped: %s", fb_err)
 
+    # ─── Determine subject type and build body description ─────────────
+    subject_config = _get_subject_config(subject_name)
+    is_custom = subject_config and getattr(subject_config, "subject_type", "performer") == "custom"
+
     if mode == "explicit":
         user_msg = (
             f"Generate {count} varied, explicit adult photography prompts. Subject: {display_name}\n"
@@ -186,16 +273,40 @@ async def generate_prompts_llm(
             user_msg += f"- Prompt 3: Action/dynamic shot (shower, pool, undressing, or motion)\n"
         if count >= 4:
             user_msg += f"- Prompt 4: Artistic/cinematic (dramatic lighting, unusual angle, moody)\n"
-        user_msg += (
-            f"\nEach prompt must be a single dense paragraph of comma-separated tags.\n"
-            f"Describe a curvy, athletic woman with large augmented breasts (unless context says otherwise).\n"
-        )
+
+        if is_custom and subject_config.body_description:
+            # Custom character — use user-provided body description
+            user_msg += (
+                f"\nEach prompt must be a single dense paragraph of comma-separated tags.\n"
+                f"Describe: {subject_config.body_description} (unless context says otherwise).\n"
+            )
+        else:
+            # Performer or default — use tits-on-a-stick aesthetic
+            user_msg += (
+                f"\nEach prompt must be a single dense paragraph of comma-separated tags.\n"
+                f"Describe a skinny, slim woman with large bolt-on implants — tits on a stick aesthetic. "
+                f"Flat stomach, no body fat, narrow waist. NEVER curvy, thick, or chunky (unless context says otherwise).\n"
+            )
     else:
         user_msg = (
             f"Generate {count} varied, creative photographic prompts. Subject: {display_name}\n"
             f"DO NOT include the person's name in the prompt — the face is preserved via AI.\n"
             f"Include a mix of: close portrait, cinematic scene, and full-body shot.\n"
         )
+
+    # ─── Inject subject-specific attributes ────────────────────────────
+    if is_custom:
+        # Custom character: inject user-defined appearance notes
+        if subject_config.appearance_notes:
+            user_msg += f"\nAPPEARANCE DETAILS (incorporate these):\n{subject_config.appearance_notes}\n"
+        if subject_config.style_direction:
+            user_msg += f"\nSTYLE DIRECTION:\n{subject_config.style_direction}\n"
+    else:
+        # Performer: look up database for physical attributes
+        performer_attrs = _lookup_performer_attrs(subject_name)
+        if performer_attrs:
+            user_msg += f"\nPERFORMER PHYSICAL DATA (use to describe her body accurately):\n{performer_attrs}\n"
+            logger.info("Injected performer attributes for '%s'", subject_name)
 
     if context:
         user_msg += f"\nScene/theme context: {context}\n"
