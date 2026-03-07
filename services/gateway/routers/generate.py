@@ -630,7 +630,12 @@ async def activate_performer(name: str, request: Request) -> dict:
     Creates the subject directory and registers in scheduler.
     Reference images must be placed in gen-subjects/{slug}/ separately.
     """
-    body = await request.json() if request.headers.get("content-type") == "application/json" else {}
+    body = {}
+    if request.headers.get("content-type") == "application/json":
+        try:
+            body = await request.json()
+        except Exception:
+            body = {}
     priority = body.get("priority")
 
     slug = re.sub(r"[^a-z0-9]+", "-", name.lower()).strip("-")

@@ -229,7 +229,7 @@ def merge_tosi(performers: dict[str, dict], triage: Path) -> None:
     """Merge body measurements and favorites from Master TOSI.xlsx."""
     path = triage / "Master TOSI.xlsx"
     if not path.exists():
-        print(f"  Step 2: SKIP — {path} not found")
+        print(f"  Step 2: SKIP -- {path} not found")
         return
 
     rows = read_xlsx_rows(path)
@@ -274,33 +274,53 @@ def merge_tosi(performers: dict[str, dict], triage: Path) -> None:
 
 # ─── Step 3: Bimbo scoring from Ultimate Bimbo DB ───────────────────────
 
+def _find_empire_zip(triage: Path) -> Path | None:
+    """Find the Empire ZIP file in the triage directory."""
+    # Check for extracted Empire/ directory first
+    if (triage / "Empire").is_dir():
+        return None  # Extracted, not zipped
+    # Look for ZIP files with "Empire" in the name
+    for f in triage.iterdir():
+        if f.suffix.lower() == ".zip" and "empire" in f.name.lower():
+            return f
+    return None
+
+
 def merge_bimbo_db(performers: dict[str, dict], triage: Path) -> None:
     """Merge bimbo scoring from Empire ZIP."""
-    zip_path = triage / "Empire"
-    # Look for the ZIP or extracted xlsx
-    xlsx_direct = zip_path / "Ultimate_Bimbo_Performer_Database_Complete.xlsx"
-    zip_file = None
+    empire_dir = triage / "Empire"
+    xlsx_direct = empire_dir / "Ultimate_Bimbo_Performer_Database_Complete.xlsx"
 
-    # Check for direct file first, then ZIP
+    rows = None
+    # Check for direct file first
     if xlsx_direct.exists():
         rows = read_xlsx_rows(xlsx_direct)
     else:
-        # Look for any zip in Empire/
-        zips = list(zip_path.glob("*.zip")) if zip_path.exists() else []
-        if not zips:
-            print(f"  Step 3: SKIP — No Empire ZIP/xlsx found")
-            return
-        zip_file = zips[0]
-        try:
-            with zipfile.ZipFile(zip_file, "r") as zf:
-                xlsx_names = [n for n in zf.namelist() if "Ultimate_Bimbo" in n and n.endswith(".xlsx")]
-                if not xlsx_names:
-                    print(f"  Step 3: SKIP — No Ultimate_Bimbo xlsx in ZIP")
-                    return
-                rows = read_xlsx_from_zip(zip_file, xlsx_names[0])
-        except Exception as e:
-            print(f"  Step 3: SKIP — Error reading ZIP: {e}")
-            return
+        # Look for Empire ZIP in triage root
+        zip_file = _find_empire_zip(triage)
+        if not zip_file:
+            # Also check for xlsx directly in Empire dir with variant names
+            for variant in empire_dir.glob("*Bimbo*Performer*.xlsx") if empire_dir.exists() else []:
+                rows = read_xlsx_rows(variant)
+                break
+
+        if rows is None and zip_file:
+            try:
+                with zipfile.ZipFile(zip_file, "r") as zf:
+                    xlsx_names = [n for n in zf.namelist()
+                                  if ("bimbo" in n.lower() or "Ultimate_Bimbo" in n)
+                                  and n.endswith(".xlsx")]
+                    if not xlsx_names:
+                        print(f"  Step 3: SKIP -- No Bimbo xlsx in ZIP {zip_file.name}")
+                        return
+                    rows = read_xlsx_from_zip(zip_file, xlsx_names[0])
+            except Exception as e:
+                print(f"  Step 3: SKIP -- Error reading ZIP: {e}")
+                return
+
+    if rows is None:
+        print(f"  Step 3: SKIP -- No Empire ZIP/xlsx found")
+        return
 
     matched = 0
     for r in rows:
@@ -336,26 +356,36 @@ def merge_bimbo_db(performers: dict[str, dict], triage: Path) -> None:
 
 def merge_master_sheet(performers: dict[str, dict], triage: Path) -> None:
     """Fill gaps from the 36-column Master Sheet."""
-    zip_path = triage / "Empire"
-    xlsx_direct = zip_path / "Master_Sheet_FINAL_POLISHED.xlsx"
+    empire_dir = triage / "Empire"
+    xlsx_direct = empire_dir / "Master_Sheet_FINAL_POLISHED.xlsx"
 
+    rows = None
     if xlsx_direct.exists():
         rows = read_xlsx_rows(xlsx_direct)
     else:
-        zips = list(zip_path.glob("*.zip")) if zip_path.exists() else []
-        if not zips:
-            print(f"  Step 4: SKIP — No Master_Sheet xlsx/ZIP found")
-            return
-        try:
-            with zipfile.ZipFile(zips[0], "r") as zf:
-                xlsx_names = [n for n in zf.namelist() if "Master_Sheet" in n and n.endswith(".xlsx")]
-                if not xlsx_names:
-                    print(f"  Step 4: SKIP — No Master_Sheet in ZIP")
-                    return
-                rows = read_xlsx_from_zip(zips[0], xlsx_names[0])
-        except Exception as e:
-            print(f"  Step 4: SKIP — Error: {e}")
-            return
+        zip_file = _find_empire_zip(triage)
+        if not zip_file:
+            # Check for variant names in extracted directory
+            for variant in empire_dir.glob("*Master_Sheet*.xlsx") if empire_dir.exists() else []:
+                rows = read_xlsx_rows(variant)
+                break
+
+        if rows is None and zip_file:
+            try:
+                with zipfile.ZipFile(zip_file, "r") as zf:
+                    xlsx_names = [n for n in zf.namelist()
+                                  if "master_sheet" in n.lower() and n.endswith(".xlsx")]
+                    if not xlsx_names:
+                        print(f"  Step 4: SKIP -- No Master_Sheet in ZIP")
+                        return
+                    rows = read_xlsx_from_zip(zip_file, xlsx_names[0])
+            except Exception as e:
+                print(f"  Step 4: SKIP -- Error: {e}")
+                return
+
+    if rows is None:
+        print(f"  Step 4: SKIP -- No Master_Sheet xlsx found")
+        return
 
     matched = 0
     for r in rows:
@@ -393,7 +423,7 @@ def merge_sovereign_dump(performers: dict[str, dict], triage: Path) -> None:
     """Merge style match data from SOVEREIGN_DUMP CSVs."""
     dump_dir = triage / "SOVEREIGN_DUMP"
     if not dump_dir.exists():
-        print(f"  Step 5: SKIP — {dump_dir} not found")
+        print(f"  Step 5: SKIP -- {dump_dir} not found")
         return
 
     # Tits_On_Stick_Performers.csv
@@ -440,7 +470,7 @@ def merge_sovereign_dump(performers: dict[str, dict], triage: Path) -> None:
             matched2 += 1
         print(f"  Step 5b: Merged {matched2} from Top_100_Bimbo CSV")
     else:
-        print(f"  Step 5b: SKIP — Top_100_Bimbo CSV not found")
+        print(f"  Step 5b: SKIP -- Top_100_Bimbo CSV not found")
 
 
 # ─── Step 6: Compute gen_suitability ─────────────────────────────────────
@@ -540,7 +570,7 @@ def output_json(performers: dict[str, dict], output_path: Path) -> None:
 
     output_path.parent.mkdir(parents=True, exist_ok=True)
     output_path.write_text(json.dumps(result, indent=2, ensure_ascii=False), encoding="utf-8")
-    print(f"\n  Output: {len(result)} performers → {output_path}")
+    print(f"\n  Output: {len(result)} performers -> {output_path}")
 
 
 # ─── Main ────────────────────────────────────────────────────────────────
@@ -593,8 +623,8 @@ def main():
     print(f"  Total performers: {len(performers)}")
     print(f"  With implants: {sum(1 for p in performers.values() if p.get('implants'))}")
     print(f"  Favorites: {sum(1 for p in performers.values() if p.get('is_favorite'))}")
-    print(f"  Gen suitability ≥ 60: {sum(1 for p in performers.values() if p.get('gen_suitability', 0) >= 60)}")
-    print(f"  Gen suitability ≥ 80: {sum(1 for p in performers.values() if p.get('gen_suitability', 0) >= 80)}")
+    print(f"  Gen suitability >= 60: {sum(1 for p in performers.values() if p.get('gen_suitability', 0) >= 60)}")
+    print(f"  Gen suitability >= 80: {sum(1 for p in performers.values() if p.get('gen_suitability', 0) >= 80)}")
 
     # S-Tier check
     s_tier_found = [p["name"] for p in performers.values() if p.get("tier") == "S"]
@@ -605,7 +635,7 @@ def main():
               f"implants={p['implants']}, bust={p.get('bust', '?')}")
 
     if args.dry_run:
-        print("\n  DRY RUN — no output written")
+        print("\n  DRY RUN -- no output written")
         return
 
     # Step 8: Output
