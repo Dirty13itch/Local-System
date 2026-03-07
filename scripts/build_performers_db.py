@@ -264,7 +264,7 @@ def merge_tosi(performers: dict[str, dict], triage: Path) -> None:
 
         # Favorite markers (★ or similar)
         fav_raw = safe_str(r.get("Favorite") or r.get("Fav", ""))
-        if fav_raw and fav_raw.strip() in ("★", "⭐", "1", "Yes", "TRUE", "True", "yes"):
+        if fav_raw and fav_raw.strip() in ("★", "⭐", "*", "1", "Yes", "TRUE", "True", "yes"):
             p["is_favorite"] = True
 
         matched += 1
