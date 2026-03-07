@@ -66,6 +66,13 @@ AUTO_PORTRAITS = 3
 # Scan interval in seconds
 SCAN_INTERVAL = 30
 
+# FaceDetailer post-processing (Impact-Pack) — set True to enable
+# YOLOv8 face detection → SAM masking → re-inpaint face at higher detail.
+# Requires: ComfyUI-Impact-Pack + ultralytics pip package + face_yolov8m.pt + sam_vit_b
+# Currently False: ultralytics not yet installed in WORKSHOP Docker container.
+# To enable: docker exec comfyui pip install ultralytics && restart container
+FACE_DETAILER_ENABLED = False
+
 # ─── LLM Prompt Generation ──────────────────────────────────────────────────
 
 PROMPT_GEN_SYSTEM = """You are an expert Flux.1 prompt engineer specializing in hyperrealistic adult photography generation.
@@ -724,6 +731,7 @@ class AutoGenerator:
         width: int = 832,
         height: int = 1216,
         seed: int = -1,
+        face_detailer: bool = FACE_DETAILER_ENABLED,
     ) -> str | None:
         """Submit a generation job to ComfyUI via the gateway pipeline.
 
@@ -746,6 +754,7 @@ class AutoGenerator:
                 width=width,
                 height=height,
                 seed=seed,
+                face_detailer=face_detailer,
             )
         else:
             # Only use text-only when there genuinely is no reference image

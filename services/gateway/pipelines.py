@@ -61,6 +61,113 @@ def _add_face_restore(
     workflow[save_node_id]["inputs"]["images"] = ["fr_restore", 0]
 
 
+# Default FaceDetailer settings
+DEFAULT_FD_GUIDE_SIZE = 480
+DEFAULT_FD_MAX_SIZE = 1024
+DEFAULT_FD_DENOISE = 0.4  # Subtle refinement — preserves identity
+DEFAULT_FD_STEPS = 20
+DEFAULT_FD_CFG = 1.0  # Match FLUX cfg
+
+# Face detection model for Impact-Pack
+DEFAULT_FACE_DETECT_MODEL = "face_yolov8m.pt"
+DEFAULT_SAM_MODEL = "sam_vit_b_01ec64.pth"
+
+# Upscaler model
+DEFAULT_UPSCALER_MODEL = "4x-UltraSharp.pth"
+
+
+def _add_face_detailer(
+    workflow: dict,
+    image_node_id: str,
+    model_node_id: str,
+    clip_node_id: str,
+    vae_node_id: str,
+    pos_cond_node_id: str,
+    neg_cond_node_id: str,
+    save_node_id: str,
+    model_output_slot: int = 0,
+    clip_output_slot: int = 0,
+    denoise: float = DEFAULT_FD_DENOISE,
+    steps: int = DEFAULT_FD_STEPS,
+    cfg: float = DEFAULT_FD_CFG,
+    guide_size: int = DEFAULT_FD_GUIDE_SIZE,
+    seed: int = -1,
+) -> None:
+    """Add FaceDetailer post-processing (Impact-Pack) after generation.
+
+    Detects face regions via YOLOv8, creates precise masks with SAM,
+    then inpaints face regions at higher detail using the same model/prompt.
+    Much better than simple GFPGAN restore for preserving identity while
+    enhancing face quality.
+
+    The model/clip output slots allow flexibility — e.g. LoraLoader outputs
+    clip on slot 1, while DualCLIPLoader outputs on slot 0.
+
+    Requires on WORKSHOP: ComfyUI-Impact-Pack, face_yolov8m.pt, sam_vit_b.
+    """
+    s = _seed(seed)
+
+    # BBOX face detector (YOLOv8)
+    workflow["fd_detector"] = {
+        "class_type": "UltralyticsDetectorProvider",
+        "inputs": {"model_name": DEFAULT_FACE_DETECT_MODEL},
+    }
+
+    # SAM model for precise face masking
+    workflow["fd_sam"] = {
+        "class_type": "SAMLoader",
+        "inputs": {
+            "model_name": DEFAULT_SAM_MODEL,
+            "device_mode": "AUTO",
+        },
+    }
+
+    # FaceDetailer node — the core enhancement
+    workflow["fd_main"] = {
+        "class_type": "FaceDetailer",
+        "inputs": {
+            "image": [image_node_id, 0],
+            "model": [model_node_id, model_output_slot],
+            "clip": [clip_node_id, clip_output_slot],
+            "vae": [vae_node_id, 0],
+            "positive": [pos_cond_node_id, 0],
+            "negative": [neg_cond_node_id, 0],
+            "bbox_detector": ["fd_detector", 0],
+            "sam_model_opt": ["fd_sam", 0],
+            "segm_detector_opt": None,
+            "detailer_hook": None,
+            "guide_size": guide_size,
+            "guide_size_for": True,  # guide_size_for_bbox
+            "max_size": DEFAULT_FD_MAX_SIZE,
+            "seed": s,
+            "steps": steps,
+            "cfg": cfg,
+            "sampler_name": "euler",
+            "scheduler": "simple",
+            "denoise": denoise,
+            "feather": 10,
+            "noise_mask": True,
+            "force_inpaint": False,
+            "bbox_threshold": 0.5,
+            "bbox_dilation": 10,
+            "bbox_crop_factor": 3.0,
+            "sam_detection_hint": "center-1",
+            "sam_dilation": 10,
+            "sam_threshold": 0.93,
+            "sam_bbox_expansion": 0,
+            "sam_mask_hint_threshold": 0.7,
+            "sam_mask_hint_use_negative": "False",
+            "drop_size": 10,
+            "cycle": 1,
+            "inpaint_model": False,
+            "noise_mask_feather": 20,
+        },
+    }
+
+    # Rewire save node to use FaceDetailer output
+    workflow[save_node_id]["inputs"]["images"] = ["fd_main", 0]
+
+
 # ---------------------------------------------------------------------------
 # FLUX Uncensored — text-to-image with unrestricted LoRA
 # ---------------------------------------------------------------------------
@@ -247,13 +354,18 @@ def flux_faceid(
     cfg: float = 1.0,
     seed: int = -1,
     restore_face: bool = True,
+    face_detailer: bool = False,
     lora_name: str | None = None,
     lora_strength: float = 1.0,
 ) -> dict:
     """Build FLUX.1 Dev + PuLID workflow for face identity preservation.
 
-    Auto-loads uncensored LoRA for unrestricted content. Face restoration
-    enabled by default for photorealistic face quality.
+    Auto-loads uncensored LoRA for unrestricted content.
+
+    Post-processing options (mutually exclusive — face_detailer takes priority):
+      face_detailer: Impact-Pack FaceDetailer (YOLOv8 detect → SAM mask → inpaint).
+                     Higher quality but requires Impact-Pack + models on WORKSHOP.
+      restore_face: ReActor GFPGAN face restore (simpler, faster, always available).
     """
     # Auto-load uncensored LoRA
     if lora_name is None:
@@ -370,7 +482,23 @@ def flux_faceid(
         workflow["16"]["inputs"]["clip"] = ["20", 1]
         workflow["17"]["inputs"]["clip"] = ["20", 1]
 
-    if restore_face:
+    if face_detailer:
+        # FaceDetailer: YOLOv8 face detection → SAM masking → re-inpaint face
+        # Model always comes from PuLID output ("34") regardless of LoRA
+        # CLIP depends on whether LoRA is active (slot 1) or raw (slot 0)
+        _add_face_detailer(
+            workflow,
+            image_node_id="8",
+            model_node_id="34",
+            clip_node_id="20" if lora_name else "11",
+            vae_node_id="10",
+            pos_cond_node_id="16",
+            neg_cond_node_id="17",
+            save_node_id="9",
+            clip_output_slot=1 if lora_name else 0,
+            seed=s,
+        )
+    elif restore_face:
         _add_face_restore(workflow, image_node_id="8", save_node_id="9")
 
     return {"prompt": workflow, "client_id": _client_id()}
@@ -524,6 +652,7 @@ def queen_portrait(
     seed: int = -1,
     negative_prompt: str = "blurry, low quality, deformed, ugly, bad anatomy",
     restore_face: bool = True,
+    face_detailer: bool = False,
 ) -> dict:
     """Build queen portrait workflow (832x1216).
 
@@ -542,6 +671,7 @@ def queen_portrait(
             cfg=1.0,
             seed=seed,
             restore_face=restore_face,
+            face_detailer=face_detailer,
             lora_name=lora_name,
         )
     else:
@@ -571,6 +701,7 @@ def queen_scene(
     seed: int = -1,
     negative_prompt: str = "blurry, low quality, deformed, ugly, bad anatomy",
     restore_face: bool = True,
+    face_detailer: bool = False,
 ) -> dict:
     """Build queen scene workflow (1344x768 cinematic).
 
@@ -589,6 +720,7 @@ def queen_scene(
             cfg=1.0,
             seed=seed,
             restore_face=restore_face,
+            face_detailer=face_detailer,
             lora_name=lora_name,
         )
     else:
