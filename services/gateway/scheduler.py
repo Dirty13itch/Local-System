@@ -489,6 +489,66 @@ BUILTIN_THEMES = {
     },
 }
 
+# ─── Content area → theme weighting map ──────────────────────────────────────
+# Maps keywords found in performer content_areas / bimbo_subtype to theme keys
+# that should get boosted probability. Weight 3x = appears 3x as often.
+CONTENT_THEME_WEIGHTS: dict[str, dict[str, float]] = {
+    # Content areas (from Ultimate Bimbo DB)
+    "gagging": {"facefuck-deepthroat": 3.0, "throatfuck-sloppy": 3.0, "sloppy-blowjob-pov": 2.0},
+    "anal": {"rough-anal": 3.0, "prone-bone": 1.5, "pile-driver": 1.5},
+    "blowjob": {"sloppy-blowjob-pov": 3.0, "facefuck-deepthroat": 2.0},
+    "interracial": {"hardcore-bedroom": 1.5, "gangbang-center": 1.5},
+    "dom": {"rough-choking-fuck": 2.0, "hair-pulling-behind": 2.0, "slapping-degradation": 2.0},
+    "milf": {"desk-office": 2.0, "cowgirl-riding": 1.5, "facesitting-smother": 2.0},
+    "pov": {"sloppy-blowjob-pov": 2.5, "cowgirl-riding": 1.5},
+    "slim enhanced": {"portrait-studio": 1.5, "mirror-selfie": 1.5, "oil-glamour": 2.0},
+    # Bimbo subtypes
+    "tits on a stick": {"oil-glamour": 2.0, "poolside-luxury": 1.5, "cowgirl-riding": 1.5},
+    "fitness bimbo": {"shower-sex": 1.5, "standing-fuck": 1.5, "pool-outdoor-fuck": 2.0},
+    "petite bimbo": {"prone-bone": 1.5, "standing-fuck": 2.0, "pile-driver": 1.5},
+    "blonde bimbo": {"poolside-luxury": 1.5, "pool-outdoor-fuck": 1.5},
+}
+
+PERFORMERS_DB_PATH = Path(os.environ.get("PERFORMERS_DB", "/mnt/vault/data/performers.json"))
+_performers_cache: dict[str, dict] | None = None
+_performers_cache_time: float = 0.0
+
+
+def _load_performers_for_scheduler() -> dict[str, dict]:
+    """Load performers.json (cached 5 min) for content-aware theme weighting."""
+    global _performers_cache, _performers_cache_time
+    if _performers_cache and (time.time() - _performers_cache_time < 300):
+        return _performers_cache
+    try:
+        data = json.loads(PERFORMERS_DB_PATH.read_text())
+        _performers_cache = {
+            p["name"].lower().replace(" ", "-"): p for p in data if "name" in p
+        }
+        _performers_cache_time = time.time()
+        return _performers_cache
+    except Exception:
+        return _performers_cache or {}
+
+
+def _compute_theme_weights(subject_name: str) -> dict[str, float]:
+    """Compute per-theme weights based on performer's content areas and subtype."""
+    performers = _load_performers_for_scheduler()
+    performer = performers.get(subject_name)
+    if not performer:
+        return {}
+
+    weights: dict[str, float] = {}
+    # Check content_areas
+    content_areas = (performer.get("content_areas") or "").lower()
+    bimbo_subtype = (performer.get("bimbo_subtype") or "").lower()
+
+    for keyword, theme_boosts in CONTENT_THEME_WEIGHTS.items():
+        if keyword in content_areas or keyword in bimbo_subtype:
+            for theme_key, boost in theme_boosts.items():
+                weights[theme_key] = max(weights.get(theme_key, 1.0), boost)
+
+    return weights
+
 
 @dataclass
 class SubjectConfig:
@@ -632,13 +692,29 @@ class GenScheduler:
         return selected
 
     def _select_theme(self, subject: SubjectConfig) -> tuple[str, dict]:
-        """Select next theme for subject, rotating through the list."""
+        """Select next theme for subject.
+
+        Uses content-aware weighted random when performer has content area data,
+        otherwise falls back to simple rotation.
+        """
         available = subject.themes or list(BUILTIN_THEMES.keys())
 
-        # Rotate to next theme
-        idx = subject.last_theme_index % len(available)
-        theme_key = available[idx]
-        subject.last_theme_index = idx + 1
+        # Try content-aware weighted selection
+        theme_weights = _compute_theme_weights(subject.name)
+        if theme_weights:
+            # Build weighted list — each theme gets base weight 1.0, boosted by content match
+            weights = [theme_weights.get(t, 1.0) for t in available]
+            theme_key = random.choices(available, weights=weights, k=1)[0]
+            logger.debug(
+                "Content-weighted theme for %s: %s (boosted: %s)",
+                subject.name, theme_key,
+                {k: v for k, v in theme_weights.items() if v > 1.0},
+            )
+        else:
+            # Fallback: simple rotation
+            idx = subject.last_theme_index % len(available)
+            theme_key = available[idx]
+            subject.last_theme_index = idx + 1
 
         # Get theme config
         if theme_key in BUILTIN_THEMES:
