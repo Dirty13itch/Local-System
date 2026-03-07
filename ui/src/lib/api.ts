@@ -236,13 +236,57 @@ class ApiClient {
     return resp.json();
   }
 
-  async searchMemory(query: string, topK = 10) {
+  async searchMemory(query: string, topK = 10, tiers?: string[]) {
+    const body: Record<string, unknown> = { query, top_k: topK };
+    if (tiers && tiers.length > 0) body.tiers = tiers;
     const resp = await fetch(`${this.baseUrl}/v1/memory/search`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ query, top_k: topK }),
+      body: JSON.stringify(body),
     });
     return resp.json();
+  }
+
+  async getMemoryStats(): Promise<Record<string, { ready: boolean; count: number; health: string }>> {
+    try {
+      const resp = await fetch(`${this.baseUrl}/v1/memory/stats`);
+      if (!resp.ok) return {};
+      return resp.json();
+    } catch {
+      return {};
+    }
+  }
+
+  async storeMemory(params: {
+    content: string;
+    tier: string;
+    source?: string;
+    tags?: string[];
+    confidence?: number;
+  }): Promise<Record<string, unknown>> {
+    const resp = await fetch(`${this.baseUrl}/v1/memory/store`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(params),
+    });
+    return resp.json();
+  }
+
+  async consolidateMemory(): Promise<Record<string, unknown>> {
+    const resp = await fetch(`${this.baseUrl}/v1/memory/consolidate`, {
+      method: "POST",
+    });
+    return resp.json();
+  }
+
+  async listEpisodicEvents(limit = 20): Promise<Record<string, unknown>> {
+    try {
+      const resp = await fetch(`${this.baseUrl}/v1/memory/episodic?limit=${limit}`);
+      if (!resp.ok) return { events: [] };
+      return resp.json();
+    } catch {
+      return { events: [] };
+    }
   }
 
   // Cognitive workspace

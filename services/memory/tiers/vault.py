@@ -203,7 +203,7 @@ class VaultTier(BaseTier):
                     results.append(MemoryEntry(
                         id=payload.get("id", str(hit.id)),
                         tier=MemoryTier.KNOWLEDGE_VAULT,
-                        content=payload.get("content", ""),
+                        content=payload.get("content", "") or payload.get("text", ""),
                         metadata=payload,
                         source=payload.get("source", ""),
                         confidence=hit.score,

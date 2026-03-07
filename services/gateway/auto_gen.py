@@ -244,46 +244,22 @@ async def generate_prompts_llm(
         if len(prompts) >= count:
             logger.info("LLM generated %d %s prompts for '%s'", len(prompts), mode, subject_name)
             return prompts[:count]
-        elif prompts:
-            logger.warning(
-                "LLM returned %d prompts (wanted %d) for '%s', padding with templates",
-                len(prompts), count, subject_name,
+        else:
+            # NO FALLBACK — if LLM can't generate enough prompts, that's an error.
+            # Fix the model, prompt, or API connectivity instead of degrading quality.
+            raise RuntimeError(
+                f"LLM generated only {len(prompts)} prompts (wanted {count}) for '{subject_name}'. "
+                f"Check model configuration, prompt length, or API connectivity."
             )
-            return prompts + _fallback_prompts(display_name, mode)[: count - len(prompts)]
 
+    except RuntimeError:
+        raise  # Re-raise our own errors
     except Exception as e:
-        logger.warning("LLM prompt generation failed (%s), using %s templates", e, mode)
-
-    return _fallback_prompts(display_name, mode)[:count]
-
-
-def _fallback_prompts(display_name: str, mode: str = "explicit") -> list[str]:
-    """Template prompts when LLM is unavailable."""
-    if mode == "explicit":
-        return [
-            f"hyperrealistic intimate portrait of {display_name}, nude on silk sheets, "
-            f"bedroom setting, warm lamplight, seductive expression, sweat glistening on skin, "
-            f"sharp focus, masterpiece, 8k uhd, RAW photo",
-
-            f"explicit photograph of {display_name}, topless in shower, wet hair, "
-            f"water running down body, steam, aroused expression, looking at camera, "
-            f"professional photography, hyperrealistic, 8k quality",
-
-            f"nude full body photograph of {display_name}, lying on bed, legs apart, "
-            f"playful seductive pose, lace panties pulled down, natural lighting, "
-            f"intimate bedroom scene, hyperrealistic, masterpiece, 8k uhd",
-        ]
-    else:
-        return [
-            f"professional headshot portrait of {display_name}, studio lighting, sharp focus, "
-            f"8k uhd, photorealistic, clean background, looking at camera",
-
-            f"cinematic portrait of {display_name}, natural lighting, shallow depth of field, "
-            f"warm tones, beautiful, photorealistic, 8k quality",
-
-            f"full body portrait of {display_name}, elegant outfit, studio setting, "
-            f"professional photography, soft lighting, photorealistic, 8k quality",
-        ]
+        # NO FALLBACK — always fail hard on LLM errors
+        raise RuntimeError(
+            f"LLM prompt generation failed for '{subject_name}': {e}. "
+            f"Check vLLM/LiteLLM connectivity at {LLM_API_URL}"
+        ) from e
 
 
 # ─── Data structures ─────────────────────────────────────────────────────────
