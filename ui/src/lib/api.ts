@@ -49,6 +49,47 @@ export interface CognitiveState {
   cycle_count: number;
 }
 
+// ─── Agent Server Types ────────────────────────────────────────────────
+
+export interface AgentTrust {
+  score: number;
+  grade: string;
+  feedback: { up: number; down: number; total: number };
+  escalation: { approved: number; rejected: number; total: number };
+  samples: number;
+}
+
+export interface AgentInfo {
+  name: string;
+  description: string;
+  tools: string[];
+  type: "proactive" | "reactive";
+  schedule: string | null;
+  status: "online" | "offline" | "error";
+  status_note: string | null;
+  trust?: AgentTrust;
+}
+
+export interface AgentActivity {
+  agent: string;
+  action_type: string;
+  input_summary: string;
+  output_summary: string;
+  tools_used: string[];
+  duration_ms: number;
+  timestamp: string;
+}
+
+export interface AgentSchedule {
+  agent: string;
+  interval_seconds: number;
+  interval_human: string;
+  enabled: boolean;
+  last_run: number | null;
+  next_run_in: number;
+  priority: string;
+}
+
 export type ClusterHealth = Record<string, Record<string, unknown>>;
 
 class ApiClient {
@@ -546,6 +587,132 @@ class ApiClient {
     } catch {
       return null;
     }
+  }
+
+  // ─── Agents ──────────────────────────────────────────────────────────
+
+  async listAgents(): Promise<{ agents: AgentInfo[]; server_url: string }> {
+    try {
+      const resp = await fetch(`${this.baseUrl}/v1/agents`);
+      if (!resp.ok) return { agents: [], server_url: "" };
+      return resp.json();
+    } catch {
+      return { agents: [], server_url: "" };
+    }
+  }
+
+  async agentServerHealth(): Promise<{ status: string; server: string }> {
+    try {
+      const resp = await fetch(`${this.baseUrl}/v1/agents/health`);
+      return resp.json();
+    } catch {
+      return { status: "offline", server: "" };
+    }
+  }
+
+  async getAgentActivity(limit = 20): Promise<AgentActivity[]> {
+    try {
+      const resp = await fetch(`${this.baseUrl}/v1/agents/activity?limit=${limit}`);
+      if (!resp.ok) return [];
+      const data = await resp.json();
+      return data.activity || data.entries || [];
+    } catch {
+      return [];
+    }
+  }
+
+  async getAgentTrust(): Promise<Record<string, AgentTrust>> {
+    try {
+      const resp = await fetch(`${this.baseUrl}/v1/agents/trust`);
+      if (!resp.ok) return {};
+      const data = await resp.json();
+      return data.agents || {};
+    } catch {
+      return {};
+    }
+  }
+
+  async getAgentSchedules(): Promise<AgentSchedule[]> {
+    try {
+      const resp = await fetch(`${this.baseUrl}/v1/agents/schedules`);
+      if (!resp.ok) return [];
+      const data = await resp.json();
+      return data.schedules || data.agents || [];
+    } catch {
+      return [];
+    }
+  }
+
+  async submitAgentTask(params: {
+    agent: string;
+    prompt: string;
+    priority?: string;
+    stream?: boolean;
+  }): Promise<Record<string, unknown>> {
+    const resp = await fetch(`${this.baseUrl}/v1/agents/task`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(params),
+    });
+    return resp.json();
+  }
+
+  async chatWithAgent(
+    agentName: string,
+    message: string,
+  ): Promise<Record<string, unknown>> {
+    const resp = await fetch(`${this.baseUrl}/v1/agents/${agentName}/chat`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ message }),
+    });
+    return resp.json();
+  }
+
+  async submitAgentFeedback(params: {
+    agent: string;
+    task_id?: string;
+    vote: "up" | "down";
+    comment?: string;
+  }): Promise<Record<string, unknown>> {
+    const resp = await fetch(`${this.baseUrl}/v1/agents/feedback`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(params),
+    });
+    return resp.json();
+  }
+
+  async getAgentWorkplan(): Promise<Record<string, unknown>> {
+    try {
+      const resp = await fetch(`${this.baseUrl}/v1/agents/workplan`);
+      if (!resp.ok) return {};
+      return resp.json();
+    } catch {
+      return {};
+    }
+  }
+
+  async getPendingActions(): Promise<{ actions: Array<Record<string, unknown>> }> {
+    try {
+      const resp = await fetch(`${this.baseUrl}/v1/agents/pending`);
+      if (!resp.ok) return { actions: [] };
+      return resp.json();
+    } catch {
+      return { actions: [] };
+    }
+  }
+
+  async resolvePendingAction(
+    actionId: string,
+    decision: { approved: boolean; comment?: string },
+  ): Promise<Record<string, unknown>> {
+    const resp = await fetch(`${this.baseUrl}/v1/agents/pending/${actionId}/resolve`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(decision),
+    });
+    return resp.json();
   }
 
   // ─── WebSocket ────────────────────────────────────────────────────────

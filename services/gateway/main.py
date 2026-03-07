@@ -21,6 +21,7 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
 from .routers import (
+    agents as agents_router,
     chat as chat_router,
     generate as generate_router,
     health as health_router,
@@ -93,6 +94,7 @@ app.include_router(tasks_router.router)
 app.include_router(generate_router.router)
 app.include_router(queens_router.router)
 app.include_router(workspaces_router.router)
+app.include_router(agents_router.router)
 
 
 # ─── Static Files & Gallery ──────────────────────────────────────────────

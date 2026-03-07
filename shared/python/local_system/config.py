@@ -62,6 +62,7 @@ class ServicePorts(BaseSettings):
     ui: int = Field(default=3001, alias="UI_PORT")
 
     # External services
+    agent_server: int = Field(default=9000)
     litellm: int = Field(default=4000)
     vllm_reasoning: int = Field(default=8000)
     vllm_fast: int = Field(default=8000)
