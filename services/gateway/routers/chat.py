@@ -203,3 +203,129 @@ async def list_models(request: Request) -> list[dict]:
         return resp.json().get("data", [])
     except Exception as e:
         raise HTTPException(status_code=502, detail=str(e)) from e
+
+
+@router.get("/v1/models/info")
+async def model_info(request: Request) -> dict:
+    """Enriched model information — alias, provider, node, status."""
+    client = _client(request)
+
+    # Fetch model info from LiteLLM
+    try:
+        resp = await client.get(
+            f"{_litellm_url()}/model/info",
+            headers=_litellm_headers(),
+            timeout=10.0,
+        )
+        resp.raise_for_status()
+        raw = resp.json().get("data", [])
+    except Exception:
+        raw = []
+
+    # Fetch LiteLLM health for endpoint status
+    endpoint_health: dict[str, bool] = {}
+    try:
+        resp = await client.get(
+            f"{_litellm_url()}/health",
+            headers=_litellm_headers(),
+            timeout=10.0,
+        )
+        resp.raise_for_status()
+        health_data = resp.json()
+        # healthy_endpoints is a list of dicts with "model" key
+        for ep in health_data.get("healthy_endpoints", []):
+            model_name = ep.get("model", "")
+            if model_name:
+                endpoint_health[model_name] = True
+        for ep in health_data.get("unhealthy_endpoints", []):
+            model_name = ep.get("model", "")
+            if model_name:
+                endpoint_health[model_name] = False
+    except Exception:
+        pass
+
+    # IP to node name mapping
+    ip_to_node = {
+        settings.network.foundry: "FOUNDRY",
+        settings.network.workshop: "WORKSHOP",
+        settings.network.vault: "VAULT",
+        settings.network.dev: "DEV",
+    }
+
+    # Cloud provider detection
+    cloud_providers = {"anthropic", "openai", "deepseek", "gemini", "azure"}
+
+    # Alias to vLLM host mapping for status lookups
+    alias_to_vllm_key = {
+        "reasoning": "vllm_reasoning",
+        "coding": "vllm_coding",
+        "creative": "vllm_creative",
+        "fast": "vllm_fast",
+        "embedding": "vllm_embedding",
+        "reranker": "vllm_reranker",
+    }
+
+    models = []
+    for entry in raw:
+        alias = entry.get("model_name", "")
+        litellm_params = entry.get("litellm_params", {})
+        model_info_data = entry.get("model_info", {})
+
+        model_path = litellm_params.get("model", "")
+        api_base = litellm_params.get("api_base", "")
+
+        # Determine provider from model path prefix
+        provider = "unknown"
+        if "/" in model_path:
+            prefix = model_path.split("/")[0]
+            if prefix == "hosted_vllm":
+                provider = "hosted_vllm"
+            elif prefix in cloud_providers:
+                provider = prefix
+            else:
+                provider = prefix
+
+        # Clean model name (remove provider prefix)
+        clean_model = model_path
+        if "/" in model_path:
+            parts = model_path.split("/", 1)
+            if parts[0] in {"hosted_vllm", "anthropic", "openai", "deepseek", "gemini", "azure"}:
+                clean_model = parts[1]
+
+        # Determine node from api_base IP
+        node = None
+        is_local = provider == "hosted_vllm"
+        if api_base:
+            for ip, name in ip_to_node.items():
+                if ip in api_base:
+                    node = name
+                    break
+
+        mode = model_info_data.get("mode", "chat")
+
+        # Determine status from LiteLLM health data
+        status = "unknown"
+        if alias in endpoint_health:
+            status = "online" if endpoint_health[alias] else "offline"
+        elif is_local:
+            # Fallback: check if model_path appears in health data
+            for ep_model, healthy in endpoint_health.items():
+                if alias in ep_model or ep_model in model_path:
+                    status = "online" if healthy else "offline"
+                    break
+        elif not is_local:
+            # Cloud models — no health data means API key likely missing
+            status = "no_key"
+
+        models.append({
+            "alias": alias,
+            "model_name": clean_model,
+            "provider": provider,
+            "api_base": api_base if is_local else None,
+            "node": node,
+            "mode": mode or "chat",
+            "is_local": is_local,
+            "status": status,
+        })
+
+    return {"models": models}

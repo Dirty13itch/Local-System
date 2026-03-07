@@ -26,6 +26,7 @@ from .routers import (
     generate as generate_router,
     health as health_router,
     memory as memory_router,
+    nodes as nodes_router,
     queens as queens_router,
     tasks as tasks_router,
     workspaces as workspaces_router,
@@ -95,6 +96,7 @@ app.include_router(generate_router.router)
 app.include_router(queens_router.router)
 app.include_router(workspaces_router.router)
 app.include_router(agents_router.router)
+app.include_router(nodes_router.router)
 
 
 # ─── Static Files & Gallery ──────────────────────────────────────────────

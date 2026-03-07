@@ -77,11 +77,11 @@ class InferenceConfig(BaseSettings):
 
     # LiteLLM is the single entry point for all inference
     litellm_host: str = Field(default="http://192.168.1.203:4000", alias="LITELLM_HOST")
-    litellm_key: str = Field(default="not-set", alias="LITELLM_KEY")
+    litellm_key: str = Field(default="not-set", alias="LITELLM_MASTER_KEY")
 
     # vLLM instances (ports set after GPU discovery)
     vllm_reasoning_host: str = Field(default="http://192.168.1.244:8000", alias="VLLM_REASONING_HOST")
-    vllm_fast_host: str = Field(default="http://192.168.1.225:8000", alias="VLLM_FAST_HOST")
+    vllm_fast_host: str = Field(default="http://192.168.1.244:8004", alias="VLLM_FAST_HOST")
     vllm_embedding_host: str = Field(default="http://192.168.1.189:8001", alias="VLLM_EMBEDDING_HOST")
     vllm_coding_host: str = Field(default="http://192.168.1.244:8002", alias="VLLM_CODING_HOST")
     vllm_creative_host: str = Field(default="http://192.168.1.244:8004", alias="VLLM_CREATIVE_HOST")

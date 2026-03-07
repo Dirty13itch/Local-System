@@ -92,6 +92,54 @@ export interface AgentSchedule {
 
 export type ClusterHealth = Record<string, Record<string, unknown>>;
 
+// ─── Node Status Types ──────────────────────────────────────────────────
+
+export interface GpuStatus {
+  index: number;
+  name: string;
+  utilization_percent: number;
+  vram_used_mb: number;
+  vram_total_mb: number;
+  temperature_c: number;
+  power_watts: number;
+}
+
+export interface NodeStatus {
+  name: string;
+  ip: string;
+  online: boolean;
+  uptime_hours: number;
+  cpu_percent: number;
+  ram_used_gb: number;
+  ram_total_gb: number;
+  disk_used_gb: number;
+  disk_total_gb: number;
+  gpus: GpuStatus[];
+  services: string[];
+}
+
+export interface NodesResponse {
+  nodes: NodeStatus[];
+  timestamp: string;
+}
+
+// ─── Model Info Types ────────────────────────────────────────────────────
+
+export interface ModelDetail {
+  alias: string;
+  model_name: string;
+  provider: string;
+  api_base: string | null;
+  node: string | null;
+  mode: string | null;
+  is_local: boolean;
+  status: string;
+}
+
+export interface ModelsInfoResponse {
+  models: ModelDetail[];
+}
+
 class ApiClient {
   private baseUrl: string;
 
@@ -107,6 +155,21 @@ class ApiClient {
   async clusterHealth(): Promise<ClusterHealth> {
     const resp = await fetch(`${this.baseUrl}/health/cluster`);
     return resp.json();
+  }
+
+  async getNodeStatus(): Promise<NodesResponse> {
+    const resp = await fetch(`${this.baseUrl}/v1/nodes/status`);
+    return resp.json();
+  }
+
+  async getModelInfo(): Promise<ModelsInfoResponse> {
+    try {
+      const resp = await fetch(`${this.baseUrl}/v1/models/info`);
+      if (!resp.ok) return { models: [] };
+      return resp.json();
+    } catch {
+      return { models: [] };
+    }
   }
 
   async listModels(): Promise<Model[]> {
