@@ -56,4 +56,19 @@ RUN git clone https://github.com/kijai/ComfyUI-KJNodes.git ${COMFYUI_DIR}/custom
 
 EXPOSE 8188
 
-CMD ["python3", "main.py", "--listen", "0.0.0.0", "--port", "8188"]
+# ─── Entrypoint Script ──────────────────────────────────────────────────────
+# Creates symlinks from local model dirs to NFS-mounted models at runtime.
+# PuLID hardcodes folder_paths.models_dir for InsightFace, so we symlink
+# /opt/ComfyUI/models/insightface → /mnt/vault/models/comfyui/insightface
+# to ensure model files are found regardless of how PuLID resolves paths.
+RUN printf '#!/bin/bash\n\
+# Symlink model directories from NFS mount (if available)\n\
+if [ -d /mnt/vault/models/comfyui/insightface ]; then\n\
+    rm -rf /opt/ComfyUI/models/insightface\n\
+    ln -sf /mnt/vault/models/comfyui/insightface /opt/ComfyUI/models/insightface\n\
+    echo "Linked insightface models from NFS"\n\
+fi\n\
+exec python3 main.py "$@"\n' > /opt/ComfyUI/entrypoint.sh && chmod +x /opt/ComfyUI/entrypoint.sh
+
+ENTRYPOINT ["/opt/ComfyUI/entrypoint.sh"]
+CMD ["--listen", "0.0.0.0", "--port", "8188"]
