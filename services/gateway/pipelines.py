@@ -4,14 +4,15 @@ Each preset function takes user parameters and returns a ComfyUI API prompt dict
 (the JSON body sent to POST /prompt). Users never see nodes.
 
 Presets:
-    flux-uncensored: FLUX.1 Dev FP8 + flux-uncensored LoRA
-    realvis-xl:      RealVisXL V5.0 photorealistic SDXL
-    flux-faceid:     FLUX.1 Dev + PuLID identity preservation
-    sdxl-faceid:     RealVisXL + IPAdapter FaceID Plus V2
-    face-swap:       ReActor face swap on existing image
-    custom-lora:     FLUX.1 Dev + user-trained LoRA
-    queen-portrait:  832x1216 character portrait with face identity
-    queen-scene:     1344x768 cinematic scene with face identity
+    flux-uncensored:   FLUX.1 Dev FP8 + flux-uncensored LoRA
+    realvis-xl:        RealVisXL V5.0 photorealistic SDXL
+    flux-faceid:       FLUX.1 Dev + PuLID identity preservation
+    flux-infiniteyou:  FLUX.1 Dev + InfiniteYou (ByteDance) identity
+    sdxl-faceid:       RealVisXL + IPAdapter FaceID Plus V2
+    face-swap:         ReActor face swap on existing image
+    custom-lora:       FLUX.1 Dev + user-trained LoRA
+    queen-portrait:    832x1216 character portrait with face identity
+    queen-scene:       1344x768 cinematic scene with face identity
 """
 
 from __future__ import annotations
@@ -496,6 +497,217 @@ def flux_faceid(
             neg_cond_node_id="17",
             save_node_id="9",
             clip_output_slot=1 if lora_name else 0,
+            seed=s,
+        )
+    elif restore_face:
+        _add_face_restore(workflow, image_node_id="8", save_node_id="9")
+
+    return {"prompt": workflow, "client_id": _client_id()}
+
+
+# ---------------------------------------------------------------------------
+# FLUX InfiniteYou — ControlNet-like identity preservation (ByteDance)
+# ---------------------------------------------------------------------------
+
+# InfiniteYou model variants
+INFINITEYOU_SIM = "sim_stage1"  # Higher identity similarity
+INFINITEYOU_AES = "aes_stage2"  # Better aesthetics
+
+# Default InfiniteYou settings
+DEFAULT_IY_STRENGTH = 0.85
+DEFAULT_IY_NUM_TOKENS = 8  # Token count must match image_proj_model architecture
+
+
+def flux_infiniteyou(
+    prompt: str,
+    reference_image: str,
+    negative_prompt: str = "blurry, low quality, deformed",
+    identity_strength: float = DEFAULT_IY_STRENGTH,
+    width: int = 1024,
+    height: int = 1024,
+    steps: int = 25,
+    cfg: float = 1.0,
+    seed: int = -1,
+    restore_face: bool = True,
+    face_detailer: bool = False,
+    lora_name: str | None = None,
+    lora_strength: float = 1.0,
+    variant: str = INFINITEYOU_SIM,
+    num_tokens: int = DEFAULT_IY_NUM_TOKENS,
+) -> dict:
+    """Build FLUX.1 Dev + InfiniteYou (ByteDance) identity preservation workflow.
+
+    InfiniteYou uses InfuseNet (ControlNet-like) with face embeddings injected
+    into conditioning — eliminates face copy-paste artifacts common in PuLID.
+
+    Variants:
+      sim_stage1: Higher identity similarity (default, best for digital replicas)
+      aes_stage2: Better overall aesthetics (slight identity trade-off)
+
+    Post-processing (mutually exclusive — face_detailer takes priority):
+      face_detailer: Impact-Pack FaceDetailer (YOLOv8 → SAM → inpaint).
+      restore_face: ReActor GFPGAN face restore (simpler, faster).
+    """
+    # Auto-load uncensored LoRA
+    if lora_name is None:
+        lora_name = DEFAULT_NSFW_LORA
+        lora_strength = DEFAULT_NSFW_LORA_STRENGTH
+
+    s = _seed(seed)
+
+    # Determine model file names based on variant
+    image_proj_name = f"{variant}/image_proj_model.bin"
+    infusenet_name = f"{variant}/infusenet_{'sim' if variant == INFINITEYOU_SIM else 'aes'}_fp8e4m3fn.safetensors"
+
+    workflow = {
+        # ── Model loading ───────────────────────────────────
+        "10": {
+            "class_type": "VAELoader",
+            "inputs": {"vae_name": "ae.safetensors"},
+        },
+        "11": {
+            "class_type": "DualCLIPLoader",
+            "inputs": {
+                "clip_name1": "t5xxl_fp8_e4m3fn.safetensors",
+                "clip_name2": "clip_l.safetensors",
+                "type": "flux",
+            },
+        },
+        "12": {
+            "class_type": "UNETLoader",
+            "inputs": {
+                "unet_name": "flux1-dev-fp8.safetensors",
+                "weight_dtype": "fp8_e4m3fn",
+            },
+        },
+        # ── LoRA (uncensored) ───────────────────────────────
+        "20": {
+            "class_type": "LoraLoader",
+            "inputs": {
+                "model": ["12", 0],
+                "clip": ["11", 0],
+                "lora_name": lora_name,
+                "strength_model": lora_strength,
+                "strength_clip": lora_strength,
+            },
+        },
+        # ── Prompt encoding ─────────────────────────────────
+        "16": {
+            "class_type": "CLIPTextEncode",
+            "inputs": {
+                "text": prompt,
+                "clip": ["20", 1],  # clip from LoRA
+            },
+        },
+        "17": {
+            "class_type": "CLIPTextEncode",
+            "inputs": {
+                "text": negative_prompt,
+                "clip": ["20", 1],
+            },
+        },
+        # ── Reference image ─────────────────────────────────
+        "15": {
+            "class_type": "LoadImage",
+            "inputs": {"image": reference_image},
+        },
+        # ── InfiniteYou identity pipeline ───────────────────
+        # Load face detector + arcface + image_proj models
+        "30": {
+            "class_type": "IDEmbeddingModelLoader",
+            "inputs": {
+                "image_proj_model_name": image_proj_name,
+                "image_proj_num_tokens": num_tokens,
+                "face_analysis_provider": "CUDA",
+                "face_analysis_det_size": "AUTO",
+            },
+        },
+        # Extract face identity embedding from reference image
+        "31": {
+            "class_type": "ExtractIDEmbedding",
+            "inputs": {
+                "face_detector": ["30", 0],
+                "arcface_model": ["30", 1],
+                "image_proj_model": ["30", 2],
+                "image": ["15", 0],
+            },
+        },
+        # Load InfuseNet ControlNet model
+        "32": {
+            "class_type": "InfuseNetLoader",
+            "inputs": {
+                "controlnet_name": infusenet_name,
+            },
+        },
+        # Apply InfuseNet — injects identity into conditioning
+        "33": {
+            "class_type": "InfuseNetApply",
+            "inputs": {
+                "positive": ["16", 0],
+                "id_embedding": ["31", 0],
+                "control_net": ["32", 0],
+                "image": ["15", 0],
+                "strength": identity_strength,
+                "start_percent": 0.0,
+                "end_percent": 1.0,
+                "negative": ["17", 0],
+                "vae": ["10", 0],
+            },
+        },
+        # ── Empty latent ────────────────────────────────────
+        "13": {
+            "class_type": "EmptySD3LatentImage",
+            "inputs": {
+                "width": width,
+                "height": height,
+                "batch_size": 1,
+            },
+        },
+        # ── Sampling ────────────────────────────────────────
+        "6": {
+            "class_type": "KSampler",
+            "inputs": {
+                "model": ["20", 0],  # model from LoRA (InfiniteYou modifies conditioning, not model)
+                "positive": ["33", 0],  # InfuseNet-modified positive
+                "negative": ["33", 1],  # InfuseNet-modified negative
+                "latent_image": ["13", 0],
+                "seed": s,
+                "steps": steps,
+                "cfg": cfg,
+                "sampler_name": "euler",
+                "scheduler": "simple",
+                "denoise": 1.0,
+            },
+        },
+        # ── Decode + save ───────────────────────────────────
+        "8": {
+            "class_type": "VAEDecode",
+            "inputs": {
+                "samples": ["6", 0],
+                "vae": ["10", 0],
+            },
+        },
+        "9": {
+            "class_type": "SaveImage",
+            "inputs": {
+                "images": ["8", 0],
+                "filename_prefix": "infiniteyou",
+            },
+        },
+    }
+
+    # ── Post-processing ─────────────────────────────────────
+    if face_detailer:
+        _add_face_detailer(
+            workflow,
+            image_node_id="8",
+            model_node_id="20",  # model from LoRA (InfiniteYou doesn't modify model)
+            clip_node_id="20",
+            vae_node_id="10",
+            pos_cond_node_id="16",
+            neg_cond_node_id="17",
+            save_node_id="9",
+            clip_output_slot=1,
             seed=s,
         )
     elif restore_face:
@@ -1110,6 +1322,7 @@ PIPELINE_PRESETS = {
     "flux-uncensored": flux_uncensored,
     "realvis-xl": realvis_xl,
     "flux-faceid": flux_faceid,
+    "flux-infiniteyou": flux_infiniteyou,
     "sdxl-faceid": sdxl_faceid,
     "face-swap": face_swap,
     "queen-portrait": queen_portrait,

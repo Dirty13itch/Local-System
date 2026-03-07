@@ -34,6 +34,7 @@ from ..scheduler import gen_scheduler
 from ..pipelines import (
     PIPELINE_PRESETS,
     flux_faceid,
+    flux_infiniteyou,
     flux_img2img,
     flux_inpaint,
     flux_uncensored,
@@ -133,6 +134,13 @@ async def generate_face(request: Request, body: GenerateFaceRequest) -> Generate
 
     if body.pipeline == "flux-faceid":
         workflow_data = flux_faceid(
+            prompt=body.prompt, reference_image=body.reference_image,
+            negative_prompt=body.negative_prompt, identity_strength=body.identity_strength,
+            width=body.width, height=body.height, steps=body.steps,
+            cfg=body.cfg, seed=body.seed,
+        )
+    elif body.pipeline == "flux-infiniteyou":
+        workflow_data = flux_infiniteyou(
             prompt=body.prompt, reference_image=body.reference_image,
             negative_prompt=body.negative_prompt, identity_strength=body.identity_strength,
             width=body.width, height=body.height, steps=body.steps,
@@ -335,6 +343,7 @@ async def list_pipelines() -> list[dict]:
         {"id": "flux-uncensored", "name": "FLUX Uncensored", "type": "text2img", "est_time": "45-60s"},
         {"id": "realvis-xl", "name": "RealVisXL V5.0", "type": "text2img", "est_time": "25-35s"},
         {"id": "flux-faceid", "name": "FLUX FaceID (PuLID)", "type": "face", "est_time": "60-90s"},
+        {"id": "flux-infiniteyou", "name": "FLUX InfiniteYou (ByteDance)", "type": "face", "est_time": "60-90s"},
         {"id": "sdxl-faceid", "name": "SDXL FaceID (IPAdapter)", "type": "face", "est_time": "35-50s"},
         {"id": "face-swap", "name": "ReActor Face Swap", "type": "swap", "est_time": "10-15s"},
         {"id": "queen-portrait", "name": "Queen Portrait (832x1216)", "type": "queen", "est_time": "60-90s"},
