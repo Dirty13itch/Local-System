@@ -582,8 +582,13 @@ class AutoGenerator:
                 except OSError:
                     pass
 
+            # Extract subject slug from drop name (format: {slug}_{YYYYMMDD}_{HHMM})
+            # e.g., "peta-jensen_20260306_2054" → "peta-jensen"
+            parts = name.rsplit("_", 2)
+            subject_slug = parts[0] if len(parts) >= 3 else name
+
             prompts = await generate_prompts_llm(
-                subject_name=name,
+                subject_name=subject_slug,
                 count=AUTO_PORTRAITS,
                 context=context,
             )
