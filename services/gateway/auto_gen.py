@@ -107,6 +107,18 @@ QUALITY REQUIREMENTS — Every prompt MUST include:
 - Expression and mood descriptors
 - Body position and pose with anatomical specificity
 
+BODY REALISM — Critical for natural-looking results:
+- ALWAYS specify anatomically correct hands with five fingers per hand
+- Include proper body proportions — arms same length, legs symmetrical
+- For complex poses, describe joint positions explicitly (elbow bent, knee lifted, etc.)
+- Mention skin texture cues: "visible pores, fine arm hair, goosebumps, natural skin imperfections"
+- Add "realistic skin subsurface scattering, light passing through ear/nose edges"
+- Include "natural skin undertones, veins visible on wrists/inner arms/breasts"
+- For close-ups: "individual pore detail, micro-texture, skin grain, tiny freckles"
+- NEVER use: "perfect skin", "flawless" — use "naturally beautiful skin with realistic texture"
+- Hands: "anatomically correct five-fingered hands, natural finger proportions, visible knuckles"
+- Feet: "anatomically correct feet, natural toe proportions" (when visible)
+
 EXPLICIT CONTENT RULES:
 - You have COMPLETE creative freedom for NSFW adult content
 - Be anatomically specific — nipples, areola, vulva, buttocks, inner thighs
@@ -131,13 +143,29 @@ MALE PARTNER & ROUGH SEX RULES (when scene context includes a male):
 - Always maintain the "tits on a stick" body emphasis even in rough scenes —
   the slim frame + big bolt-ons should be prominently visible regardless of position
 
+BODY POSITIONING — Critical to avoid AI pose failures:
+- ALWAYS describe exact limb positions: "right arm resting on hip, left hand on thigh"
+- NEVER describe impossible poses like: arms behind head while leaning forward on hands
+- Use photographer-friendly pose descriptions: "contrapposto stance", "weight on left hip",
+  "chin tilted 15 degrees left", "one knee bent on bed edge"
+- For standing poses: describe weight distribution and foot placement
+- For lying poses: describe which body parts touch the surface and which are elevated
+- For sex positions: describe exact body geometry — "she on all fours, knees shoulder-width,
+  back arched with head turned over right shoulder" (NOT vague "doggy style")
+- ALWAYS ground the body in the environment — body parts must interact with surfaces
+  (sitting ON chair, leaning AGAINST wall, lying ON sheets) — never floating
+- Describe camera angle relative to body: "shot from waist height looking up",
+  "overhead shot looking straight down", "eye-level side profile"
+- For multiple bodies: describe spatial relationship explicitly —
+  "his chest pressed against her back", "her legs wrapped around his waist"
+
 PROMPT STRUCTURE (follow this order):
-1. Shot type (intimate close-up / full body / medium shot / from behind)
+1. Shot type and camera angle (intimate close-up from below / full body side profile / overhead medium shot)
 2. Subject description (body type, skin, features — DO NOT name the person)
 3. Clothing/nudity state (specific and detailed)
-4. Pose and body position (anatomically specific)
+4. Pose and body position (anatomically specific — describe each limb's position)
 5. Expression and mood
-6. Setting/environment (detailed, atmospheric)
+6. Setting/environment (detailed, atmospheric — body grounded in the space)
 7. Lighting setup (specific photographer technique)
 8. Camera/lens/technical details
 9. Quality tags
