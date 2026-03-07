@@ -31,9 +31,11 @@ shared/python/local_system/proto/*_pb2*.py
 shared/python/local_system/proto/*_pb2*.pyi
 shared/typescript/src/proto/
 
-# IDE
+# IDE & Tool Config
 .idea/
 .vscode/
+.claude/
+.serena/
 *.swp
 *.swo
 *~
