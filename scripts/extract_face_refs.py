@@ -404,34 +404,40 @@ def extract_refs_for_performer(
 
             all_candidates.extend(candidates)
 
-    if not all_candidates:
-        result["status"] = "no_faces_found"
-        logger.warning("No quality face frames found for %s", performer_name)
-        return result
+        # ── Still inside temp dir context ── selection + copy must happen here
+        # because frame["path"] points to files inside the temp directory
+        if not all_candidates:
+            result["status"] = "no_faces_found"
+            logger.warning("No quality face frames found for %s", performer_name)
+            return result
 
-    # Select diverse subset
-    selected = select_diverse_frames(all_candidates, max_refs)
-    logger.info("Selected %d diverse frames for %s", len(selected), performer_name)
+        # Select diverse subset
+        selected = select_diverse_frames(all_candidates, max_refs)
+        logger.info("Selected %d diverse frames for %s", len(selected), performer_name)
 
-    # Copy selected frames to output
-    output_dir.mkdir(parents=True, exist_ok=True)
+        # Copy selected frames to output
+        output_dir.mkdir(parents=True, exist_ok=True)
 
-    for i, frame in enumerate(selected):
-        src = frame["path"]
-        ext = src.suffix
-        if mode == "train":
-            dst = output_dir / f"img_{i + 1:03d}{ext}"
-        else:
-            dst = output_dir / f"ref_{i + 1:02d}{ext}"
+        saved_count = 0
+        for i, frame in enumerate(selected):
+            src = frame["path"]
+            ext = src.suffix
+            if mode == "train":
+                dst = output_dir / f"img_{i + 1:03d}{ext}"
+            else:
+                dst = output_dir / f"ref_{i + 1:02d}{ext}"
 
-        # Read, optionally crop to face region with padding, and save
-        img = cv2.imread(str(src))
-        if img is not None:
-            cv2.imwrite(str(dst), img, [cv2.IMWRITE_JPEG_QUALITY, 95])
+            # Read, optionally crop to face region with padding, and save
+            img = cv2.imread(str(src))
+            if img is not None:
+                cv2.imwrite(str(dst), img, [cv2.IMWRITE_JPEG_QUALITY, 95])
+                saved_count += 1
+            else:
+                logger.warning("Failed to read frame: %s", src)
 
-    result["status"] = "success"
-    result["refs_extracted"] = len(selected)
-    logger.info("✓ %s: %d refs saved to %s", performer_name, len(selected), output_dir)
+        result["status"] = "success"
+        result["refs_extracted"] = saved_count
+        logger.info("✓ %s: %d refs saved to %s", performer_name, saved_count, output_dir)
 
     return result
 
