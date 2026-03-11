@@ -333,10 +333,6 @@ def run_with_refinement(
       - Aider fails to make changes (stuck)
       - max_iterations exhausted
     """
-    test_cmd, runner_name = detect_test_runner(worktree)
-    if verbose:
-        print(f"[supervisor] Test runner: {runner_name}")
-
     combined_output: list[str] = []
     current_task = task
 
@@ -358,10 +354,15 @@ def run_with_refinement(
                 print(f"[supervisor] {label} Aider failed; stopping refinement")
             return False, "\n".join(combined_output), i + 1
 
+        # Re-detect test runner after each aider run (aider may have created tests)
+        test_cmd, runner_name = detect_test_runner(worktree)
+        if verbose:
+            print(f"[supervisor] {label} Test runner: {runner_name}")
+
         # Test
         if not test_cmd:
             if verbose:
-                print(f"[supervisor] {label} No tests; accepting aider output")
+                print(f"[supervisor] {label} No tests detected; accepting aider output")
             return True, "\n".join(combined_output), i + 1
 
         if verbose:
