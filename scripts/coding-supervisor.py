@@ -188,10 +188,26 @@ def get_changed_files(worktree: Path) -> list[str]:
 
 # ─── Task Executors ──────────────────────────────────────────────────────────
 
+def _aider_bin() -> str:
+    """Resolve aider binary path, falling back to common pipx/local install locations."""
+    import shutil
+    if path := shutil.which("aider"):
+        return path
+    # Common locations when ~/.local/bin isn't in PATH (non-interactive SSH)
+    for candidate in [
+        Path.home() / ".local" / "bin" / "aider",
+        Path("/usr/local/bin/aider"),
+        Path("/usr/bin/aider"),
+    ]:
+        if candidate.exists():
+            return str(candidate)
+    return "aider"  # let subprocess raise FileNotFoundError with a clear message
+
+
 def run_aider_simple(task: str, worktree: Path, timeout: int = 300) -> tuple[bool, str]:
     """Run aider in single-pass mode for simple tasks."""
     cmd = [
-        "aider",
+        _aider_bin(),
         "--message", task,
         "--yes-always",
         "--no-auto-commits",  # We'll commit after review
@@ -212,7 +228,7 @@ def run_aider_simple(task: str, worktree: Path, timeout: int = 300) -> tuple[boo
 def run_aider_medium(task: str, worktree: Path, timeout: int = 600) -> tuple[bool, str]:
     """Run aider in architect/editor mode for medium complexity tasks."""
     cmd = [
-        "aider",
+        _aider_bin(),
         "--architect",
         "--message", task,
         "--yes-always",
