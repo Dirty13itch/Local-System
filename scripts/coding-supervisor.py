@@ -265,6 +265,199 @@ def run_research(task: str, timeout: int = 120) -> tuple[bool, str]:
         return False, f"Research query failed: {e}"
 
 
+# ─── Test Runner (Phase C-5) ─────────────────────────────────────────────────
+
+def detect_test_runner(worktree: Path) -> tuple[list[str], str]:
+    """Auto-detect the appropriate test runner for this project."""
+    # Python: pytest
+    has_pytest_cfg = any(
+        worktree.joinpath(f).exists()
+        for f in ["pytest.ini", "setup.cfg", ".pytest.ini"]
+    )
+    has_pyproject = worktree.joinpath("pyproject.toml").exists()
+    test_files = list(worktree.rglob("test_*.py"))[:1] + list(worktree.rglob("*_test.py"))[:1]
+    if has_pytest_cfg or (has_pyproject and test_files) or test_files:
+        return ["python", "-m", "pytest", "-x", "--tb=short", "-q", "--no-header"], "pytest"
+
+    # JavaScript / TypeScript: npm test
+    pkg_json = worktree / "package.json"
+    if pkg_json.exists():
+        try:
+            pkg = json.loads(pkg_json.read_text())
+            if "test" in pkg.get("scripts", {}):
+                return ["npm", "test", "--", "--passWithNoTests"], "npm"
+        except Exception:
+            pass
+
+    # Go
+    if (worktree / "go.mod").exists():
+        return ["go", "test", "./...", "-count=1"], "go"
+
+    # Rust
+    if (worktree / "Cargo.toml").exists():
+        return ["cargo", "test", "--quiet"], "cargo"
+
+    return [], "none"
+
+
+def run_tests(worktree: Path, test_cmd: list[str], timeout: int = 120) -> tuple[bool, str]:
+    """Run the test suite. Returns (passed, output)."""
+    if not test_cmd:
+        return True, "No tests detected (assuming pass)"
+
+    result = subprocess.run(
+        test_cmd,
+        cwd=worktree,
+        capture_output=True,
+        text=True,
+        timeout=timeout,
+    )
+    output = result.stdout + ("\n" + result.stderr if result.stderr else "")
+    return result.returncode == 0, output
+
+
+# ─── Iterative Refinement (Phase C-5) ────────────────────────────────────────
+
+def run_with_refinement(
+    task: str,
+    worktree: Path,
+    tier: Tier,
+    max_iterations: int = 5,
+    verbose: bool = False,
+) -> tuple[bool, str, int]:
+    """Iterative generate→test→fix loop. Returns (success, combined_output, iterations_used).
+
+    With free local tokens this costs $0 regardless of iterations.
+    Typical stopping conditions:
+      - Tests pass (success)
+      - Aider fails to make changes (stuck)
+      - max_iterations exhausted
+    """
+    test_cmd, runner_name = detect_test_runner(worktree)
+    if verbose:
+        print(f"[supervisor] Test runner: {runner_name}")
+
+    combined_output: list[str] = []
+    current_task = task
+
+    for i in range(max_iterations):
+        label = f"[iter {i+1}/{max_iterations}]"
+        if verbose:
+            print(f"[supervisor] {label} Running aider ({tier.value})...")
+
+        # Generate
+        if tier == Tier.SIMPLE:
+            aider_ok, aider_out = run_aider_simple(current_task, worktree)
+        else:
+            aider_ok, aider_out = run_aider_medium(current_task, worktree)
+
+        combined_output.append(f"=== Aider {label} ===\n{aider_out[-800:]}")
+
+        if not aider_ok:
+            if verbose:
+                print(f"[supervisor] {label} Aider failed; stopping refinement")
+            return False, "\n".join(combined_output), i + 1
+
+        # Test
+        if not test_cmd:
+            if verbose:
+                print(f"[supervisor] {label} No tests; accepting aider output")
+            return True, "\n".join(combined_output), i + 1
+
+        if verbose:
+            print(f"[supervisor] {label} Running {runner_name} tests...")
+        tests_ok, test_out = run_tests(worktree, test_cmd)
+        combined_output.append(f"=== Tests {label} ({runner_name}) ===\n{test_out[-1500:]}")
+
+        if tests_ok:
+            if verbose:
+                print(f"[supervisor] {label} All tests pass!")
+            return True, "\n".join(combined_output), i + 1
+
+        # Feed failures back as next task
+        if i < max_iterations - 1:
+            failures_snip = test_out[-1200:]
+            current_task = (
+                f"Fix these test failures. Original task: {task}\n\n"
+                f"Test output:\n{failures_snip}"
+            )
+            if verbose:
+                print(f"[supervisor] {label} Tests failed — refining...")
+
+    # Exhausted iterations; report partial success
+    return False, "\n".join(combined_output), max_iterations
+
+
+# ─── Memory Integration (Phase C-6) ──────────────────────────────────────────
+
+MEMORY_URL = "http://192.168.1.189:8720"
+
+
+def query_memory_context(task: str, limit: int = 3) -> str:
+    """Query episodic + procedural memory for relevant past experience."""
+    import urllib.request
+
+    payload = json.dumps({
+        "query": task,
+        "limit": limit,
+        "tiers": ["episodic", "procedural"],
+    }).encode()
+
+    req = urllib.request.Request(
+        f"{MEMORY_URL}/v1/memory/search",
+        data=payload,
+        headers={"Content-Type": "application/json"},
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=5) as resp:
+            data = json.loads(resp.read())
+            memories = data.get("results", [])
+            parts = ["Relevant past experience:"]
+            for m in memories:
+                content = m.get("content", "")
+                score = m.get("score", 0.0)
+                if content and score > 0.65:
+                    parts.append(f"- {content[:200]}")
+            return "\n".join(parts) if len(parts) > 1 else ""
+    except Exception:
+        return ""  # Best-effort
+
+
+def store_memory_result(task: str, result: "TaskResult") -> None:
+    """Store task outcome in episodic memory for future reference."""
+    import urllib.request
+
+    status = "SUCCESS" if result.success else "FAILURE"
+    content = (
+        f"Coding task ({result.tier.value}): {task}\n"
+        f"Result: {status} in {result.duration_s:.1f}s. "
+        f"Files: {', '.join(str(f) for f in result.files_changed[:5]) or 'none'}"
+    )
+    if result.error:
+        content += f" Error: {result.error}"
+
+    payload = json.dumps({
+        "tier": "episodic",
+        "content": content,
+        "metadata": {
+            "task_id": result.task_id,
+            "tier": result.tier.value,
+            "success": result.success,
+            "source": "coding-supervisor",
+        },
+    }).encode()
+
+    req = urllib.request.Request(
+        f"{MEMORY_URL}/v1/memory/store",
+        data=payload,
+        headers={"Content-Type": "application/json"},
+    )
+    try:
+        urllib.request.urlopen(req, timeout=5)
+    except Exception:
+        pass  # Best-effort
+
+
 # ─── Best-of-N ────────────────────────────────────────────────────────────────
 
 def run_best_of_n(
@@ -429,6 +622,23 @@ def main() -> int:
         help="Skip worktree creation, run directly in repo",
     )
     parser.add_argument("--verbose", "-v", action="store_true", help="Verbose output")
+    parser.add_argument(
+        "--refine",
+        action="store_true",
+        help="Enable iterative refinement: generate→test→fix loop (Phase C-5)",
+    )
+    parser.add_argument(
+        "--max-iterations",
+        type=int,
+        default=5,
+        metavar="N",
+        help="Max refinement iterations when --refine is set (default: 5)",
+    )
+    parser.add_argument(
+        "--use-memory",
+        action="store_true",
+        help="Query memory for context before task, store result after (Phase C-6)",
+    )
 
     args = parser.parse_args()
     verbose = args.verbose
@@ -443,7 +653,22 @@ def main() -> int:
     branch = args.branch or f"athanor/{task_id}"
 
     print(f"[supervisor] Task: {args.task!r}")
-    print(f"[supervisor] Tier: {tier.value.upper()}  |  Branch: {branch}  |  N={args.n}")
+    print(f"[supervisor] Tier: {tier.value.upper()}  |  Branch: {branch}  |  N={args.n}"
+          + (f"  |  refine={args.max_iterations}x" if args.refine else ""))
+
+    # ── Memory pre-query (Phase C-6) ───────────────────────────────────────────
+    memory_context = ""
+    if args.use_memory and tier not in (Tier.COMPLEX,):
+        if verbose:
+            print("[supervisor] Querying memory for relevant context...")
+        memory_context = query_memory_context(args.task)
+        if memory_context and verbose:
+            print(f"[supervisor] Memory context: {memory_context[:200]}")
+
+    # Augment task with memory context if available
+    effective_task = args.task
+    if memory_context:
+        effective_task = f"{args.task}\n\n[Context from memory]\n{memory_context}"
 
     if args.dry_run:
         print(f"[supervisor] DRY RUN — would dispatch to tier={tier.value}")
@@ -485,7 +710,7 @@ def main() -> int:
     try:
         if tier == Tier.RESEARCH:
             print("[supervisor] Running research query via local reasoning model...")
-            result.success, result.output = run_research(args.task)
+            result.success, result.output = run_research(effective_task)
             if result.success:
                 print("\n" + "─" * 60)
                 print(result.output)
@@ -507,7 +732,7 @@ def main() -> int:
                 print("[supervisor] ERROR: --no-worktree incompatible with --n > 1")
                 return 1
             result.success, result.output, result.worktree, result.branch = run_best_of_n(
-                args.task, repo, branch, args.n, tier, verbose=verbose
+                effective_task, repo, branch, args.n, tier, verbose=verbose
             )
             if result.success and result.worktree:
                 result.files_changed = get_changed_files(result.worktree)
@@ -515,7 +740,7 @@ def main() -> int:
                 print(f"[supervisor] Files changed: {result.files_changed}")
 
         else:
-            # Single execution
+            # Single execution (with optional iterative refinement)
             if args.no_worktree:
                 worktree = repo
             else:
@@ -523,11 +748,20 @@ def main() -> int:
                 worktree = create_worktree(repo, branch)
                 result.worktree = worktree
 
-            print(f"[supervisor] Dispatching {tier.value.upper()} task to aider...")
-            if tier == Tier.SIMPLE:
-                result.success, result.output = run_aider_simple(args.task, worktree)
+            if args.refine:
+                print(f"[supervisor] Dispatching {tier.value.upper()} task with refinement (max {args.max_iterations} iterations)...")
+                result.success, result.output, iterations_used = run_with_refinement(
+                    effective_task, worktree, tier,
+                    max_iterations=args.max_iterations,
+                    verbose=verbose,
+                )
+                print(f"[supervisor] Refinement finished: {iterations_used} iteration(s)")
             else:
-                result.success, result.output = run_aider_medium(args.task, worktree)
+                print(f"[supervisor] Dispatching {tier.value.upper()} task to aider...")
+                if tier == Tier.SIMPLE:
+                    result.success, result.output = run_aider_simple(effective_task, worktree)
+                else:
+                    result.success, result.output = run_aider_medium(effective_task, worktree)
 
             result.files_changed = get_changed_files(worktree)
 
@@ -552,6 +786,12 @@ def main() -> int:
             traceback.print_exc()
 
     result.duration_s = time.time() - start_time
+
+    # ── Memory post-store (Phase C-6) ──────────────────────────────────────────
+    if args.use_memory and tier not in (Tier.COMPLEX,):
+        if verbose:
+            print("[supervisor] Storing result in episodic memory...")
+        store_memory_result(args.task, result)
 
     # ── Summary ────────────────────────────────────────────────────────────────
     status = "SUCCESS" if result.success else "FAILED"
