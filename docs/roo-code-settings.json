@@ -1,0 +1,67 @@
+{
+  "_comment": "Roo Code VS Code Extension Settings — Athanor Three-Tier Routing",
+  "_instructions": "Apply these settings to VS Code via Settings > Open Settings (JSON) or File > Preferences > Settings (JSON). Requires Roo Code extension: rooveterinaryinc.roo-cline",
+  "_setup": "1. Install Roo Code from VS Code marketplace: rooveterinaryinc.roo-cline  2. Open VS Code settings.json (Ctrl+Shift+P -> Preferences: Open User Settings JSON)  3. Merge the settings below into your settings.json",
+
+  "roo-cline.allowedCommands": [
+    "git",
+    "python",
+    "python3",
+    "pip",
+    "npm",
+    "node",
+    "cargo",
+    "go",
+    "make",
+    "pytest",
+    "aider"
+  ],
+
+  "roo-cline.apiProvider": "anthropic",
+  "roo-cline.anthropicApiKey": "${env:ANTHROPIC_API_KEY}",
+  "roo-cline.apiModelId": "claude-sonnet-4-6-20250514",
+
+  "roo-cline.modeApiConfigs": {
+    "architect": {
+      "apiProvider": "anthropic",
+      "apiModelId": "claude-sonnet-4-6-20250514",
+      "_comment": "Architect mode: Claude Sonnet for high-quality design decisions. Uses subscription — tokens are not free but quality is highest."
+    },
+    "code": {
+      "apiProvider": "openai",
+      "openAiBaseUrl": "http://192.168.1.203:4000/v1",
+      "openAiApiKey": "sk-athanor-litellm-2026",
+      "openAiModelId": "coder",
+      "_comment": "Code mode: Qwen3-Coder-30B via LiteLLM — FREE. All code generation, editing, and implementation goes here."
+    },
+    "ask": {
+      "apiProvider": "anthropic",
+      "apiModelId": "claude-haiku-4-5-20251001",
+      "_comment": "Ask/Q&A mode: Claude Haiku — fast and cheap for quick questions and lookups."
+    },
+    "debug": {
+      "apiProvider": "openai",
+      "openAiBaseUrl": "http://192.168.1.203:4000/v1",
+      "openAiApiKey": "sk-athanor-litellm-2026",
+      "openAiModelId": "reasoning",
+      "_comment": "Debug mode: Qwen3.5-27B reasoning model — FREE. Deep analysis of bugs and tracing."
+    },
+    "review": {
+      "apiProvider": "anthropic",
+      "apiModelId": "claude-sonnet-4-6-20250514",
+      "_comment": "Review mode: Claude Sonnet for thorough code review. Subscription tokens but worth it for quality gate."
+    }
+  },
+
+  "roo-cline.autoApproveOperations": {
+    "read": true,
+    "write": false,
+    "execute": false,
+    "browser": false
+  },
+
+  "roo-cline.maxContextTokens": 100000,
+  "roo-cline.maxOutputTokens": 8192,
+
+  "roo-cline.customInstructions": "You are part of the Athanor coding system. When generating code, use local Qwen3-Coder via LiteLLM (code mode) for all implementation. Reserve Claude (architect mode) for design decisions only. Always create git worktrees for isolated changes. The LiteLLM proxy is at http://192.168.1.203:4000/v1 with key sk-athanor-litellm-2026. Prefer local model execution to save subscription tokens."
+}
