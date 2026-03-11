@@ -293,7 +293,9 @@ def detect_test_runner(worktree: Path) -> tuple[list[str], str]:
     has_pyproject = worktree.joinpath("pyproject.toml").exists()
     test_files = list(worktree.rglob("test_*.py"))[:1] + list(worktree.rglob("*_test.py"))[:1]
     if has_pytest_cfg or (has_pyproject and test_files) or test_files:
-        return ["python", "-m", "pytest", "-x", "--tb=short", "-q", "--no-header"], "pytest"
+        import shutil
+        py = shutil.which("python3") or shutil.which("python") or "python3"
+        return [py, "-m", "pytest", "-x", "--tb=short", "-q", "--no-header"], "pytest"
 
     # JavaScript / TypeScript: npm test
     pkg_json = worktree / "package.json"
