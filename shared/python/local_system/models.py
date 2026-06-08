@@ -529,18 +529,48 @@ class QueenGenerateRequest(BaseModel):
 
 
 class PerformerInfo(BaseModel):
-    """Performer from the master database."""
+    """Performer from the master database.
+
+    Merged from multiple sources:
+      - Performer Data.xlsx (803 performers — backbone)
+      - Master TOSI.xlsx (728 — body measurements, favorites)
+      - Ultimate_Bimbo_Performer_Database_Complete.xlsx (701 — bimbo scoring)
+      - Master_Sheet_FINAL_POLISHED.xlsx (737 — 36 columns enrichment)
+      - Tits_On_Stick_Performers.csv / Top_100_Bimbo_Performers.csv (style match)
+    """
 
     name: str
-    rating: float = 0.0  # 1-10 personal preference
-    gen_ready: int = 0  # 1-5 AI generation suitability
+    aliases: str = ""
+    rating: float = 0.0            # 1-10 personal preference
+    gen_suitability: int = 0       # 0-100 composite generation suitability score
+    tier: str = ""                 # "S", "A", "B", "" (data-driven)
+    bimbo_score: int = 0           # 1-10 from Ultimate Bimbo DB
+    bimbo_match_pct: int = 0       # pre-computed match % from Ultimate Bimbo DB
+    bimbo_subtype: str = ""        # "Tits on a Stick", "Implant Doll", etc
+    viewing_priority: str = ""     # "Top Priority", "High Priority", etc
+    style_match: int = 0           # 1-17 scale from SOVEREIGN_DUMP
+    content_areas: str = ""        # "Gagging | Slim Enhanced", etc
+    gen_ready: int = 0             # legacy 1-5 AI generation suitability
     height: str | None = None
+    weight: str | None = None
     bust: str | None = None
-    implants: bool | None = None
+    waist: str | None = None
+    hip: str | None = None
+    bust_waist_hip: str | None = None     # "34-24-34"
+    bust_to_frame: str | None = None      # "Tight & Top-Heavy", etc
     body_type: str | None = None
+    implants: bool | None = None
+    implant_status: str | None = None     # "High Profile", etc
     ethnicity: str | None = None
     nationality: str | None = None
     career_start: str | None = None
     career_end: str | None = None
+    career_peak: str | None = None
+    years_active: int | None = None
+    total_scenes: int | None = None
+    studios: str = ""
+    signature_attributes: str = ""        # from SOVEREIGN_DUMP style data
+    content_specialization: str = ""
     is_favorite: bool = False
+    is_subject: bool = False              # True if active in scheduler
     reference_count: int = 0

@@ -177,20 +177,20 @@ async def search(body: SearchRequest) -> SearchResponse:
 
     query_embeddings = await _get_embeddings([body.query])
     if query_embeddings:
-        hits = await _qdrant.search(
+        hits_resp = await _qdrant.query_points(
             collection_name=body.collection,
-            query_vector=query_embeddings[0],
+            query=query_embeddings[0],
             limit=body.top_k * 2,
             score_threshold=body.score_threshold or None,
         )
-        for hit in hits:
+        for hit in hits_resp.points:
             payload = hit.payload or {}
             vector_results.append(
                 SearchResult(
                     document=Document(
-                        id=payload.get("doc_id", ""),
+                        id=payload.get("doc_id", "") or payload.get("source_id", ""),
                         source=payload.get("source", ""),
-                        content=payload.get("content", ""),
+                        content=payload.get("content", "") or payload.get("text", ""),
                         chunk_index=payload.get("chunk_index", 0),
                     ),
                     score=hit.score,

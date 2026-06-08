@@ -11,7 +11,7 @@ from typing import TYPE_CHECKING
 
 import httpx
 from fastapi import APIRouter, HTTPException, Request, WebSocket, WebSocketDisconnect
-from fastapi.responses import StreamingResponse
+from fastapi.responses import FileResponse, StreamingResponse
 
 from local_system.config import get_settings
 from local_system.models import (
@@ -29,9 +29,12 @@ from local_system.models import (
 from local_system.utils import setup_logging
 
 from ..auto_gen import auto_gen, generate_prompts_llm, DROPS_DIR, REFS_DIR, OUTPUT_DIR
+from ..feedback import feedback_manager
+from ..scheduler import gen_scheduler
 from ..pipelines import (
     PIPELINE_PRESETS,
     flux_faceid,
+    flux_infiniteyou,
     flux_img2img,
     flux_inpaint,
     flux_uncensored,
@@ -46,9 +49,8 @@ logger = setup_logging("gateway.generate", settings)
 
 router = APIRouter(tags=["generate"])
 
-# ComfyUI on DEV node
-_dev_host = settings.network.dev
-COMFYUI_URL = os.environ.get("COMFYUI_URL", f"http://{_dev_host}:8188")
+# ComfyUI on WORKSHOP node
+COMFYUI_URL = os.environ.get("COMFYUI_URL", f"http://{settings.network.workshop}:8188")
 
 # Performer data path — on VAULT NFS mount
 PERFORMERS_JSON = os.environ.get("PERFORMERS_JSON", "/mnt/vault/data/performers.json")
@@ -132,6 +134,13 @@ async def generate_face(request: Request, body: GenerateFaceRequest) -> Generate
 
     if body.pipeline == "flux-faceid":
         workflow_data = flux_faceid(
+            prompt=body.prompt, reference_image=body.reference_image,
+            negative_prompt=body.negative_prompt, identity_strength=body.identity_strength,
+            width=body.width, height=body.height, steps=body.steps,
+            cfg=body.cfg, seed=body.seed,
+        )
+    elif body.pipeline == "flux-infiniteyou":
+        workflow_data = flux_infiniteyou(
             prompt=body.prompt, reference_image=body.reference_image,
             negative_prompt=body.negative_prompt, identity_strength=body.identity_strength,
             width=body.width, height=body.height, steps=body.steps,
@@ -236,12 +245,29 @@ async def generation_status(request: Request) -> GenerationStatus:
     except Exception:
         running = pending = 0
 
+    # Query ComfyUI system stats for real GPU VRAM info
+    vram_used = 0
+    vram_total = 0
+    try:
+        sys_resp = await client.get(f"{COMFYUI_URL}/system_stats", timeout=5.0)
+        sys_data = sys_resp.json()
+        devices = sys_data.get("devices", [])
+        if devices:
+            # Sum all CUDA devices (ComfyUI reports in bytes)
+            for dev in devices:
+                vram_total += dev.get("vram_total", 0)
+                vram_used += dev.get("vram_total", 0) - dev.get("vram_free", 0)
+            vram_used = vram_used // (1024 * 1024)
+            vram_total = vram_total // (1024 * 1024)
+    except Exception:
+        pass
+
     return GenerationStatus(
         active_service="comfyui",
         queue_running=running,
         queue_pending=pending,
-        gpu_vram_used_mb=0,
-        gpu_vram_total_mb=16384,
+        gpu_vram_used_mb=vram_used,
+        gpu_vram_total_mb=vram_total,
     )
 
 
@@ -317,6 +343,7 @@ async def list_pipelines() -> list[dict]:
         {"id": "flux-uncensored", "name": "FLUX Uncensored", "type": "text2img", "est_time": "45-60s"},
         {"id": "realvis-xl", "name": "RealVisXL V5.0", "type": "text2img", "est_time": "25-35s"},
         {"id": "flux-faceid", "name": "FLUX FaceID (PuLID)", "type": "face", "est_time": "60-90s"},
+        {"id": "flux-infiniteyou", "name": "FLUX InfiniteYou (ByteDance)", "type": "face", "est_time": "60-90s"},
         {"id": "sdxl-faceid", "name": "SDXL FaceID (IPAdapter)", "type": "face", "est_time": "35-50s"},
         {"id": "face-swap", "name": "ReActor Face Swap", "type": "swap", "est_time": "10-15s"},
         {"id": "queen-portrait", "name": "Queen Portrait (832x1216)", "type": "queen", "est_time": "60-90s"},
@@ -446,14 +473,32 @@ async def generate_inpaint(request: Request, body: InpaintRequest) -> GenerateIm
 async def search_performers(
     q: str = "",
     min_rating: float = 0.0,
+    min_gen_suitability: int = 0,
+    tier: str | None = None,
+    implants_only: bool = False,
+    bimbo_subtype: str | None = None,
     favorites_only: bool = False,
+    sort_by: str = "gen_suitability",
     limit: int = 50,
 ) -> list[PerformerInfo]:
-    """Search the performer database."""
+    """Search the performer database.
+
+    Filters:
+        q: Name/alias search
+        min_rating: Minimum 1-10 rating
+        min_gen_suitability: Minimum 0-100 composite score
+        tier: Filter by S/A/B tier
+        implants_only: Only show performers with implants
+        bimbo_subtype: Filter by subtype (e.g. "Tits on a Stick")
+        favorites_only: Only show favorites
+
+    Sort options: gen_suitability, rating, bimbo_score, style_match, name
+    """
     performers = _load_performers()
     results = []
 
     for p in performers:
+        # Parse rating
         rating = p.get("rating") or 0
         if isinstance(rating, str):
             try:
@@ -465,44 +510,315 @@ async def search_performers(
 
         if rating < min_rating:
             continue
-        if favorites_only and not p.get("isFavorite", False):
+
+        # Gen suitability filter
+        gen_suit = int(p.get("gen_suitability", 0) or 0)
+        if gen_suit < min_gen_suitability:
             continue
+
+        # Tier filter
+        if tier and p.get("tier", "") != tier.upper():
+            continue
+
+        # Implants filter
+        impl_raw = p.get("implants")
+        if isinstance(impl_raw, bool):
+            implants = impl_raw
+        elif isinstance(impl_raw, str):
+            implants = impl_raw.lower() in ("yes", "true", "1")
+        else:
+            implants = None
+        if implants_only and not implants:
+            continue
+
+        # Bimbo subtype filter
+        if bimbo_subtype:
+            subtype = (p.get("bimbo_subtype") or "").lower()
+            if bimbo_subtype.lower() not in subtype:
+                continue
+
+        # Favorites filter
+        if favorites_only and not p.get("is_favorite", p.get("isFavorite", False)):
+            continue
+
+        # Name search
         if q:
             name = (p.get("name") or "").lower()
             aliases = (p.get("aliases") or "").lower()
             if q.lower() not in name and q.lower() not in aliases:
                 continue
 
-        career_start = p.get("careerStart")
-        career_end = p.get("careerEnd")
-        if career_start is not None:
-            career_start = str(career_start)
-        if career_end is not None:
-            career_end = str(career_end)
+        # String-safe helpers
+        def _str(key: str, fallback: str = "") -> str:
+            v = p.get(key)
+            return str(v) if v is not None else fallback
 
-        impl_raw = str(p.get("implants", "")).lower()
-        implants: bool | None = (
-            True if impl_raw == "yes"
-            else False if impl_raw == "no"
-            else None
-        )
+        def _strnone(key: str) -> str | None:
+            v = p.get(key)
+            return str(v) if v is not None else None
+
+        def _intnone(key: str) -> int | None:
+            v = p.get(key)
+            if v is None:
+                return None
+            try:
+                return int(v)
+            except (ValueError, TypeError):
+                return None
+
+        # Count reference images for this performer
+        slug = (p.get("name") or "").lower().replace(" ", "-")
+        slug = re.sub(r"[^a-z0-9-]", "", slug)
+        ref_count = 0
+        is_subject = False
+        from ..scheduler import SUBJECTS_DIR
+        ref_dir = SUBJECTS_DIR / slug
+        if ref_dir.exists():
+            ref_count = sum(
+                1 for f in ref_dir.iterdir()
+                if f.suffix.lower() in {".jpg", ".jpeg", ".png", ".webp"}
+            )
+        # Check if active in scheduler
+        is_subject = slug in gen_scheduler._subjects
 
         results.append(PerformerInfo(
             name=p.get("name", ""),
+            aliases=_str("aliases"),
             rating=float(rating),
-            height=p.get("height"),
-            bust=p.get("braSize"),
+            gen_suitability=gen_suit,
+            tier=_str("tier"),
+            bimbo_score=int(p.get("bimbo_score", 0) or 0),
+            bimbo_match_pct=int(p.get("bimbo_match_pct", 0) or 0),
+            bimbo_subtype=_str("bimbo_subtype"),
+            viewing_priority=_str("viewing_priority"),
+            style_match=int(p.get("style_match", 0) or 0),
+            content_areas=_str("content_areas"),
+            height=_strnone("height"),
+            weight=_strnone("weight"),
+            bust=_strnone("bust") or _strnone("braSize"),
+            waist=_strnone("waist"),
+            hip=_strnone("hip"),
+            bust_waist_hip=_strnone("bust_waist_hip"),
+            bust_to_frame=_strnone("bust_to_frame"),
+            body_type=_strnone("body_type") or _strnone("bodyType"),
             implants=implants,
-            body_type=p.get("bodyType"),
-            ethnicity=p.get("ethnicity"),
-            nationality=p.get("nationality"),
-            career_start=career_start,
-            career_end=career_end,
-            is_favorite=p.get("isFavorite", False),
+            implant_status=_strnone("implant_status"),
+            ethnicity=_strnone("ethnicity"),
+            nationality=_strnone("nationality"),
+            career_start=_strnone("career_start") or _strnone("careerStart"),
+            career_end=_strnone("career_end") or _strnone("careerEnd"),
+            career_peak=_strnone("career_peak"),
+            years_active=_intnone("years_active"),
+            total_scenes=_intnone("total_scenes"),
+            studios=_str("studios"),
+            signature_attributes=_str("signature_attributes"),
+            content_specialization=_str("content_specialization"),
+            is_favorite=p.get("is_favorite", p.get("isFavorite", False)),
+            is_subject=is_subject,
+            reference_count=ref_count,
         ))
 
-    results.sort(key=lambda x: x.rating, reverse=True)
+    # Sort
+    sort_keys = {
+        "gen_suitability": lambda x: x.gen_suitability,
+        "rating": lambda x: x.rating,
+        "bimbo_score": lambda x: x.bimbo_score,
+        "style_match": lambda x: x.style_match,
+        "name": lambda x: x.name.lower(),
+    }
+    sort_fn = sort_keys.get(sort_by, sort_keys["gen_suitability"])
+    reverse = sort_by != "name"
+    results.sort(key=sort_fn, reverse=reverse)
     return results[:limit]
+
+
+@router.post("/v1/generate/performers/{name}/activate")
+async def activate_performer(name: str, request: Request) -> dict:
+    """Activate a performer as a scheduler subject for autonomous generation.
+
+    Creates the subject directory and registers in scheduler.
+    Reference images must be placed in gen-subjects/{slug}/ separately.
+    """
+    body = {}
+    if request.headers.get("content-type") == "application/json":
+        try:
+            body = await request.json()
+        except Exception:
+            body = {}
+    priority = body.get("priority")
+
+    slug = re.sub(r"[^a-z0-9]+", "-", name.lower()).strip("-")
+
+    # Look up performer in DB for tier-based priority
+    performers = _load_performers()
+    performer = None
+    for p in performers:
+        p_slug = re.sub(r"[^a-z0-9]+", "-", (p.get("name") or "").lower()).strip("-")
+        if p_slug == slug:
+            performer = p
+            break
+
+    # Set priority based on tier if not explicitly provided
+    if priority is None:
+        tier = (performer or {}).get("tier", "")
+        priority = {"S": 8, "A": 6, "B": 5}.get(tier, 3)
+
+    # Create subject in scheduler
+    from ..scheduler import SUBJECTS_DIR
+    ref_dir = SUBJECTS_DIR / slug
+    ref_dir.mkdir(parents=True, exist_ok=True)
+
+    subject = gen_scheduler.add_subject(
+        name=slug,
+        display_name=name,
+        priority=priority,
+        mode="explicit",
+        subject_type="performer",
+    )
+
+    ref_count = sum(
+        1 for f in ref_dir.iterdir()
+        if f.suffix.lower() in {".jpg", ".jpeg", ".png", ".webp"}
+    ) if ref_dir.exists() else 0
+
+    return {
+        "status": "activated",
+        "slug": slug,
+        "display_name": name,
+        "priority": priority,
+        "ref_dir": str(ref_dir),
+        "ref_count": ref_count,
+        "has_refs": ref_count > 0,
+        "themes": len(subject.themes),
+        "note": "Drop reference images into the ref_dir to enable generation" if ref_count == 0 else None,
+    }
+
+
+# ─── Custom Characters ──────────────────────────────────────────────────
+
+
+@router.post("/v1/generate/characters")
+async def create_custom_character(request: Request) -> dict:
+    """Create a custom character (non-pornstar) for autonomous generation.
+
+    Custom characters use user-provided body descriptions instead of
+    looking up the performer database. Drop reference images into the
+    returned ref_dir path to enable generation.
+    """
+    body = await request.json()
+    name = body.get("name", "")
+    if not name:
+        raise HTTPException(status_code=400, detail="'name' is required")
+
+    slug = re.sub(r"[^a-z0-9]+", "-", name.lower()).strip("-")
+
+    subject = gen_scheduler.add_subject(
+        name=slug,
+        display_name=name,
+        priority=body.get("priority", 5),
+        mode=body.get("mode", "explicit"),
+        themes=body.get("themes"),
+        subject_type="custom",
+        body_description=body.get("body_description", ""),
+        appearance_notes=body.get("appearance_notes", ""),
+        style_direction=body.get("style_direction", ""),
+        custom_attributes=body.get("custom_attributes", ""),
+    )
+
+    from ..scheduler import SUBJECTS_DIR
+    ref_dir = SUBJECTS_DIR / slug
+
+    return {
+        "status": "created",
+        "slug": slug,
+        "display_name": name,
+        "subject_type": "custom",
+        "ref_dir": str(ref_dir),
+        "body_description": subject.body_description,
+        "appearance_notes": subject.appearance_notes,
+        "style_direction": subject.style_direction,
+        "note": "Drop reference images into ref_dir to enable generation",
+    }
+
+
+@router.put("/v1/generate/characters/{slug}")
+async def update_custom_character(slug: str, request: Request) -> dict:
+    """Update a custom character's attributes."""
+    subject = gen_scheduler.get_subject(slug)
+    if not subject:
+        raise HTTPException(status_code=404, detail=f"Character not found: {slug}")
+
+    body = await request.json()
+    if "body_description" in body:
+        subject.body_description = body["body_description"]
+    if "appearance_notes" in body:
+        subject.appearance_notes = body["appearance_notes"]
+    if "style_direction" in body:
+        subject.style_direction = body["style_direction"]
+    if "custom_attributes" in body:
+        subject.custom_attributes = body["custom_attributes"]
+    if "display_name" in body:
+        subject.display_name = body["display_name"]
+    if "priority" in body:
+        subject.priority = body["priority"]
+    if "enabled" in body:
+        subject.enabled = body["enabled"]
+    if "mode" in body:
+        subject.mode = body["mode"]
+    if "themes" in body:
+        subject.themes = body["themes"]
+
+    gen_scheduler.save_config()
+
+    return {
+        "status": "updated",
+        "slug": slug,
+        "subject_type": subject.subject_type,
+        "body_description": subject.body_description,
+        "appearance_notes": subject.appearance_notes,
+        "style_direction": subject.style_direction,
+    }
+
+
+@router.get("/v1/generate/characters")
+async def list_characters(subject_type: str | None = None) -> list[dict]:
+    """List all characters/subjects (custom and performers).
+
+    Filter by subject_type: "custom" or "performer" (or omit for all).
+    """
+    from ..scheduler import SUBJECTS_DIR
+
+    results = []
+    for name, s in gen_scheduler._subjects.items():
+        if subject_type and s.subject_type != subject_type:
+            continue
+
+        ref_dir = SUBJECTS_DIR / name
+        ref_count = sum(
+            1 for f in ref_dir.iterdir()
+            if f.suffix.lower() in {".jpg", ".jpeg", ".png", ".webp"}
+        ) if ref_dir.exists() else 0
+
+        info = {
+            "slug": name,
+            "display_name": s.display_name or name,
+            "subject_type": s.subject_type,
+            "enabled": s.enabled,
+            "has_refs": ref_count > 0,
+            "ref_count": ref_count,
+            "priority": s.priority,
+            "mode": s.mode,
+            "total_generated": s.total_generated,
+            "themes": len(s.themes) if s.themes else 0,
+        }
+        if s.subject_type == "custom":
+            info["body_description"] = s.body_description
+            info["appearance_notes"] = s.appearance_notes
+            info["style_direction"] = s.style_direction
+        results.append(info)
+
+    results.sort(key=lambda x: x.get("priority", 0), reverse=True)
+    return results
 
 
 # ─── Auto-Generation (Drop Folder) ──────────────────────────────────────
@@ -597,7 +913,7 @@ async def get_drop_images(name: str) -> list[str]:
 
 
 @router.get("/v1/generate/drops/{name}/image/{filename}")
-async def serve_drop_image(name: str, filename: str) -> StreamingResponse:
+async def serve_drop_image(name: str, filename: str) -> FileResponse:
     """Serve a generated image from the output folder."""
     image_path = OUTPUT_DIR / name / filename
     if not image_path.exists():
@@ -605,15 +921,15 @@ async def serve_drop_image(name: str, filename: str) -> StreamingResponse:
 
     ext = image_path.suffix.lower()
     content_types = {".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".png": "image/png", ".webp": "image/webp"}
-    return StreamingResponse(
-        open(image_path, "rb"),
+    return FileResponse(
+        path=image_path,
         media_type=content_types.get(ext, "application/octet-stream"),
         headers={"Cache-Control": "public, max-age=86400"},
     )
 
 
 @router.get("/v1/generate/drops/{name}/ref/{filename}")
-async def serve_drop_ref(name: str, filename: str) -> StreamingResponse:
+async def serve_drop_ref(name: str, filename: str) -> FileResponse:
     """Serve a reference image from the refs folder."""
     image_path = REFS_DIR / name / filename
     if not image_path.exists():
@@ -621,8 +937,8 @@ async def serve_drop_ref(name: str, filename: str) -> StreamingResponse:
 
     ext = image_path.suffix.lower()
     content_types = {".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".png": "image/png", ".webp": "image/webp"}
-    return StreamingResponse(
-        open(image_path, "rb"),
+    return FileResponse(
+        path=image_path,
         media_type=content_types.get(ext, "application/octet-stream"),
         headers={"Cache-Control": "public, max-age=86400"},
     )
@@ -646,6 +962,20 @@ async def gallery_data() -> dict:
             continue
 
         name = subject_dir.name
+
+        # Load manifest first — it contains the actual pipeline used
+        manifest = {}
+        manifest_path = REFS_DIR / name / "manifest.json"
+        if manifest_path.exists():
+            try:
+                manifest = _json.loads(manifest_path.read_text())
+            except Exception:
+                pass
+
+        # Determine pipeline from manifest (accurate), not from filename
+        pipeline = manifest.get("pipeline", "flux")
+        identity = manifest.get("identity_method", "unknown")
+
         images = []
         for f in sorted(subject_dir.iterdir()):
             if f.suffix.lower() in {".jpg", ".jpeg", ".png", ".webp"}:
@@ -655,20 +985,12 @@ async def gallery_data() -> dict:
                     "url": f"/v1/generate/drops/{name}/image/{f.name}",
                     "size_bytes": stat.st_size,
                     "created": stat.st_mtime,
-                    "pipeline": "faceid" if "faceid" in f.name else "flux",
+                    "pipeline": pipeline,
+                    "identity_method": identity,
                 })
 
         if not images:
             continue
-
-        # Load manifest for metadata
-        manifest = {}
-        manifest_path = REFS_DIR / name / "manifest.json"
-        if manifest_path.exists():
-            try:
-                manifest = _json.loads(manifest_path.read_text())
-            except Exception:
-                pass
 
         # Check drop status
         drop_dir = DROPS_DIR / name
@@ -691,14 +1013,24 @@ async def gallery_data() -> dict:
                         "url": f"/v1/generate/drops/{name}/ref/{f.name}",
                     })
 
+        # Read prompts — new manifests use "prompts" (list), old ones used "prompt_used" (str)
+        prompts = manifest.get("prompts", [])
+        if not prompts:
+            prompt_used = manifest.get("prompt_used", "")
+            if prompt_used:
+                prompts = [prompt_used]
+
         subjects.append({
             "name": name,
             "status": status,
             "image_count": len(images),
             "images": images,
             "refs": refs,
-            "prompts": manifest.get("prompts", []),
+            "prompts": prompts,
             "context": manifest.get("context", ""),
+            "pipeline": pipeline,
+            "identity_method": identity,
+            "processed_at": manifest.get("processed_at", ""),
             "latest": max(img["created"] for img in images) if images else 0,
         })
 
@@ -706,7 +1038,128 @@ async def gallery_data() -> dict:
     subjects.sort(key=lambda s: s["latest"], reverse=True)
     total = sum(s["image_count"] for s in subjects)
 
-    return {"subjects": subjects, "total_images": total}
+    # Include ratings map so gallery can render rating state per-image
+    ratings_map = feedback_manager.get_all_ratings_map()
+
+    return {
+        "subjects": subjects,
+        "total_subjects": len(subjects),
+        "total_images": total,
+        "ratings": ratings_map,
+        "feedback_summary": feedback_manager.summary(),
+    }
+
+
+# ─── Feedback & Rating Endpoints ─────────────────────────────────────────
+
+
+@router.post("/v1/generate/feedback/rate")
+async def rate_image(request: Request) -> dict:
+    """Rate a generated image as good or bad.
+
+    Body: { subject, filename, rating: "good"|"bad", prompt?: str, notes?: str }
+    """
+    body = await request.json()
+    subject = body.get("subject", "")
+    filename = body.get("filename", "")
+    rating = body.get("rating", "")
+
+    if not subject or not filename:
+        raise HTTPException(status_code=400, detail="'subject' and 'filename' are required")
+    if rating not in ("good", "bad"):
+        raise HTTPException(status_code=400, detail="'rating' must be 'good' or 'bad'")
+
+    entry = feedback_manager.rate_image(
+        subject=subject,
+        filename=filename,
+        rating=rating,
+        prompt=body.get("prompt", ""),
+        notes=body.get("notes", ""),
+    )
+    return {
+        "ok": True,
+        "rating": rating,
+        "subject": subject,
+        "filename": filename,
+        "summary": feedback_manager.summary(),
+    }
+
+
+@router.delete("/v1/generate/feedback/rate")
+async def unrate_image(request: Request) -> dict:
+    """Remove a rating from an image.
+
+    Body: { subject, filename }
+    """
+    body = await request.json()
+    subject = body.get("subject", "")
+    filename = body.get("filename", "")
+
+    if not subject or not filename:
+        raise HTTPException(status_code=400, detail="'subject' and 'filename' are required")
+
+    removed = feedback_manager.remove_rating(subject, filename)
+    return {"ok": removed, "subject": subject, "filename": filename}
+
+
+@router.get("/v1/generate/feedback/ratings")
+async def get_ratings(subject: str = "", rating: str = "") -> dict:
+    """Get all ratings, optionally filtered by subject and/or rating value."""
+    ratings = feedback_manager.get_ratings(
+        subject=subject or None,
+        rating_filter=rating or None,
+    )
+    return {"ratings": ratings, "count": len(ratings), "summary": feedback_manager.summary()}
+
+
+@router.get("/v1/generate/feedback/preferences")
+async def get_preferences() -> dict:
+    """Get current style preferences."""
+    return {
+        "preferences": feedback_manager.get_preferences(),
+        "summary": feedback_manager.summary(),
+    }
+
+
+@router.put("/v1/generate/feedback/preferences")
+async def update_preferences(request: Request) -> dict:
+    """Update style preferences. Only provided fields are changed.
+
+    Body: { like_more?, like_less?, body_notes?, mood_notes?, setting_notes?, custom? }
+    """
+    body = await request.json()
+    prefs = feedback_manager.update_preferences(
+        like_more=body.get("like_more"),
+        like_less=body.get("like_less"),
+        body_notes=body.get("body_notes"),
+        mood_notes=body.get("mood_notes"),
+        setting_notes=body.get("setting_notes"),
+        custom=body.get("custom"),
+    )
+    return {
+        "ok": True,
+        "preferences": feedback_manager.get_preferences(),
+        "summary": feedback_manager.summary(),
+    }
+
+
+@router.get("/v1/generate/feedback/summary")
+async def feedback_summary() -> dict:
+    """Get feedback summary with stats and active preferences."""
+    return {
+        **feedback_manager.summary(),
+        "preferences": feedback_manager.get_preferences(),
+    }
+
+
+@router.get("/v1/generate/feedback/prompt-context")
+async def feedback_prompt_context(subject: str = "") -> dict:
+    """Preview the feedback context that would be injected into LLM prompt generation.
+
+    Useful for debugging — shows exactly what the LLM sees about your preferences.
+    """
+    context = feedback_manager.get_prompt_context(subject=subject or None)
+    return {"context": context, "has_feedback": bool(context)}
 
 
 @router.post("/v1/generate/preview-prompts")
@@ -872,7 +1325,7 @@ async def list_performer_refs(slug: str) -> dict:
 
 
 @router.get("/v1/generate/performer-refs/{slug}/{filename}")
-async def serve_performer_ref(slug: str, filename: str) -> StreamingResponse:
+async def serve_performer_ref(slug: str, filename: str) -> FileResponse:
     """Serve a performer reference photo."""
     ref_path = Path(PERFORMER_REFS_DIR) / slug / filename
     if not ref_path.exists():
@@ -880,8 +1333,8 @@ async def serve_performer_ref(slug: str, filename: str) -> StreamingResponse:
 
     ext = ref_path.suffix.lower()
     ct = {".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".png": "image/png", ".webp": "image/webp"}
-    return StreamingResponse(
-        open(ref_path, "rb"),
+    return FileResponse(
+        path=ref_path,
         media_type=ct.get(ext, "application/octet-stream"),
         headers={"Cache-Control": "public, max-age=86400"},
     )
@@ -912,3 +1365,145 @@ async def generation_progress_ws(websocket: WebSocket, clientId: str = ""):
             await websocket.close(code=1011, reason=str(e))
         except Exception:
             pass
+
+
+# ─── Auto-Generation Scheduler ───────────────────────────────────────────
+
+
+@router.get("/v1/generate/scheduler")
+async def scheduler_status() -> dict:
+    """Get auto-generation scheduler status, subjects, and next run info."""
+    return gen_scheduler.get_status()
+
+
+@router.post("/v1/generate/scheduler/start")
+async def scheduler_start(request: Request, interval: int | None = None) -> dict:
+    """Start the auto-generation scheduler.
+
+    Args:
+        interval: Override interval in minutes (default: 120).
+    """
+    verify_api_key(request)
+    gen_scheduler.start(interval_minutes=interval)
+    return {
+        "status": "started",
+        "interval_minutes": gen_scheduler._state.interval_minutes,
+        "subjects": len(gen_scheduler._subjects),
+    }
+
+
+@router.post("/v1/generate/scheduler/stop")
+async def scheduler_stop(request: Request) -> dict:
+    """Stop the auto-generation scheduler."""
+    verify_api_key(request)
+    gen_scheduler.stop()
+    return {"status": "stopped"}
+
+
+@router.post("/v1/generate/scheduler/trigger")
+async def scheduler_trigger(request: Request) -> dict:
+    """Trigger an immediate scheduled generation (bypasses interval timer).
+
+    Optionally specify subject and/or theme to override auto-selection.
+    """
+    verify_api_key(request)
+    body = await request.json() if request.headers.get("content-type", "").startswith("application/json") else {}
+    subject_name = body.get("subject")
+    theme_key = body.get("theme")
+
+    result = await gen_scheduler.create_scheduled_drop(
+        subject_name=subject_name,
+        theme_key=theme_key,
+    )
+    return result
+
+
+@router.get("/v1/generate/scheduler/subjects")
+async def scheduler_subjects() -> list[dict]:
+    """List all registered subjects with their config and stats."""
+    subjects = []
+    for s in gen_scheduler._subjects.values():
+        import time as _time
+        info = {
+            "name": s.name,
+            "display_name": s.display_name or s.name,
+            "enabled": s.enabled,
+            "has_refs": s.has_refs,
+            "ref_count": len(list(s.ref_dir.glob("*"))) if s.ref_dir.exists() else 0,
+            "themes": s.themes,
+            "images_per_drop": s.images_per_drop,
+            "mode": s.mode,
+            "priority": s.priority,
+            "total_generated": s.total_generated,
+            "last_theme_index": s.last_theme_index,
+            "notes": s.notes,
+        }
+        if s.last_generated:
+            info["last_generated"] = _time.strftime(
+                "%Y-%m-%d %H:%M", _time.localtime(s.last_generated)
+            )
+        subjects.append(info)
+    return subjects
+
+
+@router.post("/v1/generate/scheduler/subjects")
+async def scheduler_add_subject(request: Request) -> dict:
+    """Register a new subject for auto-generation.
+
+    Body: {name, display_name?, themes?, mode?, priority?, notes?}
+    Reference images must be placed in /mnt/vault/data/gen-subjects/<name>/
+    """
+    verify_api_key(request)
+    body = await request.json()
+    name = body.get("name", "").strip()
+    if not name:
+        raise HTTPException(status_code=400, detail="'name' is required")
+
+    subject = gen_scheduler.add_subject(
+        name=name,
+        display_name=body.get("display_name", ""),
+        themes=body.get("themes"),
+        mode=body.get("mode", "explicit"),
+        priority=body.get("priority", 1),
+    )
+    if body.get("notes"):
+        subject.notes = body["notes"]
+        gen_scheduler.save_config()
+
+    return {
+        "status": "added",
+        "name": subject.name,
+        "ref_dir": str(subject.ref_dir),
+        "has_refs": subject.has_refs,
+    }
+
+
+@router.delete("/v1/generate/scheduler/subjects/{name}")
+async def scheduler_remove_subject(request: Request, name: str) -> dict:
+    """Remove a subject from auto-generation (does not delete files)."""
+    verify_api_key(request)
+    if gen_scheduler.remove_subject(name):
+        return {"status": "removed", "name": name}
+    raise HTTPException(status_code=404, detail=f"Subject not found: {name}")
+
+
+@router.put("/v1/generate/scheduler/config")
+async def scheduler_update_config(request: Request) -> dict:
+    """Update scheduler configuration.
+
+    Body: {interval_minutes?, quiet_start?, quiet_end?, enabled?}
+    """
+    verify_api_key(request)
+    body = await request.json()
+
+    if "interval_minutes" in body:
+        gen_scheduler._state.interval_minutes = int(body["interval_minutes"])
+    if "quiet_start" in body:
+        gen_scheduler._state.quiet_start = int(body["quiet_start"])
+    if "quiet_end" in body:
+        gen_scheduler._state.quiet_end = int(body["quiet_end"])
+    if "enabled" in body:
+        gen_scheduler._state.enabled = bool(body["enabled"])
+
+    gen_scheduler.save_config()
+    return gen_scheduler.get_status()

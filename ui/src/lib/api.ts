@@ -49,7 +49,96 @@ export interface CognitiveState {
   cycle_count: number;
 }
 
+// ─── Agent Server Types ────────────────────────────────────────────────
+
+export interface AgentTrust {
+  score: number;
+  grade: string;
+  feedback: { up: number; down: number; total: number };
+  escalation: { approved: number; rejected: number; total: number };
+  samples: number;
+}
+
+export interface AgentInfo {
+  name: string;
+  description: string;
+  tools: string[];
+  type: "proactive" | "reactive";
+  schedule: string | null;
+  status: "online" | "offline" | "error";
+  status_note: string | null;
+  trust?: AgentTrust;
+}
+
+export interface AgentActivity {
+  agent: string;
+  action_type: string;
+  input_summary: string;
+  output_summary: string;
+  tools_used: string[];
+  duration_ms: number;
+  timestamp: string;
+}
+
+export interface AgentSchedule {
+  agent: string;
+  interval_seconds: number;
+  interval_human: string;
+  enabled: boolean;
+  last_run: number | null;
+  next_run_in: number;
+  priority: string;
+}
+
 export type ClusterHealth = Record<string, Record<string, unknown>>;
+
+// ─── Node Status Types ──────────────────────────────────────────────────
+
+export interface GpuStatus {
+  index: number;
+  name: string;
+  utilization_percent: number;
+  vram_used_mb: number;
+  vram_total_mb: number;
+  temperature_c: number;
+  power_watts: number;
+}
+
+export interface NodeStatus {
+  name: string;
+  ip: string;
+  online: boolean;
+  uptime_hours: number;
+  cpu_percent: number;
+  ram_used_gb: number;
+  ram_total_gb: number;
+  disk_used_gb: number;
+  disk_total_gb: number;
+  gpus: GpuStatus[];
+  services: string[];
+}
+
+export interface NodesResponse {
+  nodes: NodeStatus[];
+  timestamp: string;
+}
+
+// ─── Model Info Types ────────────────────────────────────────────────────
+
+export interface ModelDetail {
+  alias: string;
+  model_name: string;
+  provider: string;
+  api_base: string | null;
+  node: string | null;
+  mode: string | null;
+  is_local: boolean;
+  status: string;
+}
+
+export interface ModelsInfoResponse {
+  models: ModelDetail[];
+}
 
 class ApiClient {
   private baseUrl: string;
@@ -66,6 +155,21 @@ class ApiClient {
   async clusterHealth(): Promise<ClusterHealth> {
     const resp = await fetch(`${this.baseUrl}/health/cluster`);
     return resp.json();
+  }
+
+  async getNodeStatus(): Promise<NodesResponse> {
+    const resp = await fetch(`${this.baseUrl}/v1/nodes/status`);
+    return resp.json();
+  }
+
+  async getModelInfo(): Promise<ModelsInfoResponse> {
+    try {
+      const resp = await fetch(`${this.baseUrl}/v1/models/info`);
+      if (!resp.ok) return { models: [] };
+      return resp.json();
+    } catch {
+      return { models: [] };
+    }
   }
 
   async listModels(): Promise<Model[]> {
@@ -132,13 +236,57 @@ class ApiClient {
     return resp.json();
   }
 
-  async searchMemory(query: string, topK = 10) {
+  async searchMemory(query: string, topK = 10, tiers?: string[]) {
+    const body: Record<string, unknown> = { query, top_k: topK };
+    if (tiers && tiers.length > 0) body.tiers = tiers;
     const resp = await fetch(`${this.baseUrl}/v1/memory/search`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ query, top_k: topK }),
+      body: JSON.stringify(body),
     });
     return resp.json();
+  }
+
+  async getMemoryStats(): Promise<Record<string, { ready: boolean; count: number; health: string }>> {
+    try {
+      const resp = await fetch(`${this.baseUrl}/v1/memory/stats`);
+      if (!resp.ok) return {};
+      return resp.json();
+    } catch {
+      return {};
+    }
+  }
+
+  async storeMemory(params: {
+    content: string;
+    tier: string;
+    source?: string;
+    tags?: string[];
+    confidence?: number;
+  }): Promise<Record<string, unknown>> {
+    const resp = await fetch(`${this.baseUrl}/v1/memory/store`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(params),
+    });
+    return resp.json();
+  }
+
+  async consolidateMemory(): Promise<Record<string, unknown>> {
+    const resp = await fetch(`${this.baseUrl}/v1/memory/consolidate`, {
+      method: "POST",
+    });
+    return resp.json();
+  }
+
+  async listEpisodicEvents(limit = 20): Promise<Record<string, unknown>> {
+    try {
+      const resp = await fetch(`${this.baseUrl}/v1/memory/episodic?limit=${limit}`);
+      if (!resp.ok) return { events: [] };
+      return resp.json();
+    } catch {
+      return { events: [] };
+    }
   }
 
   // Cognitive workspace
@@ -359,6 +507,25 @@ class ApiClient {
     return `${this.baseUrl}/v1/generate/drops/${encodeURIComponent(name)}/ref/${encodeURIComponent(filename)}`;
   }
 
+  // ─── Gallery ──────────────────────────────────────────────────────────
+
+  async fetchGallery(): Promise<GalleryResponse> {
+    try {
+      const resp = await fetch(`${this.baseUrl}/v1/generate/gallery`);
+      return resp.json();
+    } catch {
+      return { subjects: [], total_subjects: 0, total_images: 0, ratings: {}, feedback_summary: { total_rated: 0, total_good: 0, total_bad: 0, preferences_active: false } };
+    }
+  }
+
+  async rateImage(subject: string, filename: string, rating: "good" | "bad", prompt?: string, notes?: string): Promise<void> {
+    await fetch(`${this.baseUrl}/v1/generate/feedback/rate`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ subject, filename, rating, prompt, notes }),
+    });
+  }
+
   // ─── Training ─────────────────────────────────────────────────────────
 
   async startTraining(params: {
@@ -548,6 +715,132 @@ class ApiClient {
     }
   }
 
+  // ─── Agents ──────────────────────────────────────────────────────────
+
+  async listAgents(): Promise<{ agents: AgentInfo[]; server_url: string }> {
+    try {
+      const resp = await fetch(`${this.baseUrl}/v1/agents`);
+      if (!resp.ok) return { agents: [], server_url: "" };
+      return resp.json();
+    } catch {
+      return { agents: [], server_url: "" };
+    }
+  }
+
+  async agentServerHealth(): Promise<{ status: string; server: string }> {
+    try {
+      const resp = await fetch(`${this.baseUrl}/v1/agents/health`);
+      return resp.json();
+    } catch {
+      return { status: "offline", server: "" };
+    }
+  }
+
+  async getAgentActivity(limit = 20): Promise<AgentActivity[]> {
+    try {
+      const resp = await fetch(`${this.baseUrl}/v1/agents/activity?limit=${limit}`);
+      if (!resp.ok) return [];
+      const data = await resp.json();
+      return data.activity || data.entries || [];
+    } catch {
+      return [];
+    }
+  }
+
+  async getAgentTrust(): Promise<Record<string, AgentTrust>> {
+    try {
+      const resp = await fetch(`${this.baseUrl}/v1/agents/trust`);
+      if (!resp.ok) return {};
+      const data = await resp.json();
+      return data.agents || {};
+    } catch {
+      return {};
+    }
+  }
+
+  async getAgentSchedules(): Promise<AgentSchedule[]> {
+    try {
+      const resp = await fetch(`${this.baseUrl}/v1/agents/schedules`);
+      if (!resp.ok) return [];
+      const data = await resp.json();
+      return data.schedules || data.agents || [];
+    } catch {
+      return [];
+    }
+  }
+
+  async submitAgentTask(params: {
+    agent: string;
+    prompt: string;
+    priority?: string;
+    stream?: boolean;
+  }): Promise<Record<string, unknown>> {
+    const resp = await fetch(`${this.baseUrl}/v1/agents/task`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(params),
+    });
+    return resp.json();
+  }
+
+  async chatWithAgent(
+    agentName: string,
+    message: string,
+  ): Promise<Record<string, unknown>> {
+    const resp = await fetch(`${this.baseUrl}/v1/agents/${agentName}/chat`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ message }),
+    });
+    return resp.json();
+  }
+
+  async submitAgentFeedback(params: {
+    agent: string;
+    task_id?: string;
+    vote: "up" | "down";
+    comment?: string;
+  }): Promise<Record<string, unknown>> {
+    const resp = await fetch(`${this.baseUrl}/v1/agents/feedback`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(params),
+    });
+    return resp.json();
+  }
+
+  async getAgentWorkplan(): Promise<Record<string, unknown>> {
+    try {
+      const resp = await fetch(`${this.baseUrl}/v1/agents/workplan`);
+      if (!resp.ok) return {};
+      return resp.json();
+    } catch {
+      return {};
+    }
+  }
+
+  async getPendingActions(): Promise<{ actions: Array<Record<string, unknown>> }> {
+    try {
+      const resp = await fetch(`${this.baseUrl}/v1/agents/pending`);
+      if (!resp.ok) return { actions: [] };
+      return resp.json();
+    } catch {
+      return { actions: [] };
+    }
+  }
+
+  async resolvePendingAction(
+    actionId: string,
+    decision: { approved: boolean; comment?: string },
+  ): Promise<Record<string, unknown>> {
+    const resp = await fetch(`${this.baseUrl}/v1/agents/pending/${actionId}/resolve`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(decision),
+    });
+    return resp.json();
+  }
+
   // ─── WebSocket ────────────────────────────────────────────────────────
 
   connectGenerationWs(clientId: string): WebSocket {
@@ -668,6 +961,49 @@ export interface DropDetail extends DropEntry {
     identity_method: string;
   };
   output_images?: string[];
+}
+
+// ─── Gallery Types ──────────────────────────────────────────────────────────
+
+export interface GalleryImage {
+  filename: string;
+  url: string;
+  size_bytes: number;
+  created: number;
+  pipeline: string;
+  identity_method: string;
+}
+
+export interface GalleryRef {
+  filename: string;
+  url: string;
+}
+
+export interface GallerySubject {
+  name: string;
+  status: string;
+  image_count: number;
+  images: GalleryImage[];
+  refs: GalleryRef[];
+  prompts: string[];
+  context: string;
+  pipeline: string;
+  identity_method: string;
+  processed_at: string;
+  latest: number;
+}
+
+export interface GalleryResponse {
+  subjects: GallerySubject[];
+  total_subjects: number;
+  total_images: number;
+  ratings: Record<string, string>;
+  feedback_summary: {
+    total_rated: number;
+    total_good: number;
+    total_bad: number;
+    preferences_active: boolean;
+  };
 }
 
 export const api = new ApiClient(BASE_URL);

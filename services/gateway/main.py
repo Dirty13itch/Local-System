@@ -21,10 +21,12 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
 from .routers import (
+    agents as agents_router,
     chat as chat_router,
     generate as generate_router,
     health as health_router,
     memory as memory_router,
+    nodes as nodes_router,
     queens as queens_router,
     tasks as tasks_router,
     workspaces as workspaces_router,
@@ -34,14 +36,24 @@ from local_system.config import get_settings
 from local_system.utils import setup_logging
 
 from .auto_gen import auto_gen
+from .scheduler import gen_scheduler
 
 settings = get_settings()
 logger = setup_logging("gateway", settings)
 
-# Allowed CORS origins — configured via env, defaults to local dev
+# Allowed CORS origins — configured via env, defaults to LAN + local dev
 _cors_origins = os.environ.get(
     "CORS_ORIGINS",
-    f"http://localhost:3000,http://localhost:3001,http://192.168.1.189:3000,http://192.168.1.50:3000,http://{settings.network.vault}:3001,http://{settings.network.dev}:3000",
+    ",".join([
+        "http://localhost:3000",
+        "http://localhost:3001",
+        f"http://{settings.network.dev}:3001",   # UI on DEV
+        f"http://{settings.network.dev}:3000",   # dev alt port
+        f"http://{settings.network.vault}:3001",  # if UI moves to VAULT
+        f"http://{settings.network.vault}:3000",  # Grafana on VAULT
+        "http://192.168.1.50:3001",               # DESK direct
+        "http://192.168.1.50:3000",               # DESK alt
+    ]),
 ).split(",")
 
 # ComfyUI URL — runs on WORKSHOP, shared with auto_gen scanner
@@ -58,9 +70,14 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     auto_gen.comfyui_url = COMFYUI_URL
     auto_gen.start_scanner()
 
+    # Start auto-generation scheduler (creates drops on a timer)
+    gen_scheduler.load_config()
+    gen_scheduler.start()
+
     yield
 
-    auto_gen.stop_scanner()
+    gen_scheduler.stop()
+    await auto_gen.stop_scanner()
     await app.state.http_client.aclose()
     logger.info("Gateway stopped")
 
@@ -87,6 +104,8 @@ app.include_router(tasks_router.router)
 app.include_router(generate_router.router)
 app.include_router(queens_router.router)
 app.include_router(workspaces_router.router)
+app.include_router(agents_router.router)
+app.include_router(nodes_router.router)
 
 
 # ─── Static Files & Gallery ──────────────────────────────────────────────

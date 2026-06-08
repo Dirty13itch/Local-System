@@ -61,12 +61,18 @@ async def cluster_health(request: Request) -> dict:
         except Exception as e:
             results[name] = {"status": "unreachable", "error": str(e)}
 
-    for node_name, host in [
-        ("vllm_reasoning", settings.inference.vllm_reasoning_host),
-        ("vllm_fast", settings.inference.vllm_fast_host),
-        ("vllm_coding", settings.inference.vllm_coding_host),
-        ("vllm_embedding", settings.inference.vllm_embedding_host),
-    ]:
+    # Check vLLM instances — deduplicate if fast == creative (both on same GPU)
+    vllm_checks = {
+        "vllm_reasoning": settings.inference.vllm_reasoning_host,
+        "vllm_coding": settings.inference.vllm_coding_host,
+        "vllm_creative": settings.inference.vllm_creative_host,
+        "vllm_embedding": settings.inference.vllm_embedding_host,
+    }
+    # Only check vllm_fast separately if it's on a different host
+    if settings.inference.vllm_fast_host != settings.inference.vllm_creative_host:
+        vllm_checks["vllm_fast"] = settings.inference.vllm_fast_host
+
+    for node_name, host in vllm_checks.items():
         try:
             resp = await client.get(f"{host}/health", timeout=5.0)
             results[node_name] = {"status": "ok"}

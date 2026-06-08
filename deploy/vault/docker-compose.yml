@@ -199,6 +199,32 @@ services:
       - postgres
     restart: unless-stopped
 
+  # === PUSH NOTIFICATIONS ===
+
+  ntfy:
+    image: binwiederhier/ntfy
+    container_name: ntfy
+    command: serve
+    ports:
+      - "8880:80"
+    environment:
+      NTFY_BASE_URL: http://${VAULT_HOST:-192.168.1.203}:8880
+      NTFY_CACHE_FILE: /var/cache/ntfy/cache.db
+      NTFY_ATTACHMENT_CACHE_DIR: /var/cache/ntfy/attachments
+      NTFY_AUTH_DEFAULT_ACCESS: read-write
+      NTFY_ATTACHMENT_FILE_SIZE_LIMIT: 50M
+      NTFY_ATTACHMENT_TOTAL_SIZE_LIMIT: 10G
+      NTFY_ATTACHMENT_EXPIRY_DURATION: 24h
+    volumes:
+      - /mnt/docker/ntfy/cache:/var/cache/ntfy
+      - /mnt/docker/ntfy/etc:/etc/ntfy
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost/v1/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+    restart: unless-stopped
+
   # === COMMAND CENTER UI ===
 
   ui:

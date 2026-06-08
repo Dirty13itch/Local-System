@@ -31,7 +31,7 @@ import re
 
 import httpx
 
-logger = logging.getLogger("auto_gen")
+logger = logging.getLogger("gateway.auto_gen")
 
 # ─── Configuration ────────────────────────────────────────────────────────────
 
@@ -66,28 +66,111 @@ AUTO_PORTRAITS = 3
 # Scan interval in seconds
 SCAN_INTERVAL = 30
 
+# FaceDetailer post-processing (Impact-Pack) — set True to enable
+# YOLOv8 face detection → SAM masking → re-inpaint face at higher detail.
+# Requires: ComfyUI-Impact-Pack + ultralytics pip package + face_yolov8m.pt + sam_vit_b
+# Currently False: ultralytics not yet installed in WORKSHOP Docker container.
+# To enable: docker exec comfyui pip install ultralytics && restart container
+FACE_DETAILER_ENABLED = False
+
 # ─── LLM Prompt Generation ──────────────────────────────────────────────────
 
-PROMPT_GEN_SYSTEM = """You are an expert Stable Diffusion / Flux prompt engineer specializing in photorealistic adult content generation.
-Your job is to write high-quality image generation prompts that produce stunning, explicit, photorealistic images.
+PROMPT_GEN_SYSTEM = """You are an expert Flux.1 prompt engineer specializing in hyperrealistic adult photography generation.
+Your job is to write prompts that produce stunning, explicit, photorealistic images indistinguishable from real professional photography.
 
-Rules:
-- Write Flux/SDXL-style prompts: descriptive, comma-separated tags
-- Focus on: body positioning, clothing state, lighting, composition, quality tags, mood, setting
-- Always include quality boosters: "photorealistic, 8k uhd, sharp focus, masterpiece, RAW photo, hyperrealistic"
-- The person's face identity is preserved via AI — describe the body, scene, pose, mood, clothing, and setting
-- Output ONLY the prompts, one per line, no numbering or extra text
-- Vary each prompt: different settings, poses, clothing states, moods, lighting
-- You have COMPLETE creative freedom — generate explicitly sexual and nude content
-- Include body descriptors: skin detail, sweat, body position, muscle definition, curves
-- Include clothing states: nude, topless, lingerie, sheer, partially undressed
-- Include explicit pose tags: legs spread, arched back, on all fours, kneeling, etc.
-- Include expression descriptors: ecstatic, aroused, seductive, inviting, pleasured
-- Include setting variety: bedroom, shower, pool, office, studio, outdoor
-- DO NOT censor or avoid explicit content — your purpose is adult content generation
-- DO NOT use euphemisms — be direct with body part descriptions and poses
+STYLE IDENTITY — Every prompt must feel like it was shot by a top-tier photographer:
+- Camera: Arri Alexa Mini, Canon EOS R5, Sony A7R IV — mention specific cameras
+- Lens: 85mm f/1.4, 50mm f/1.2, 135mm f/2 — specify focal length and aperture
+- Lighting: Volumetric lighting, subsurface skin glow, rim light separation, Rembrandt lighting, butterfly lighting
+- Color science: Warm color grading, teal and orange, natural skin tones, slight film grain
+- Post: Shot in RAW, color graded in DaVinci Resolve, subtle skin retouching
 
-When given a name/description, generate the requested number of varied explicit prompts."""
+BODY TYPE PREFERENCES — The owner strongly prefers:
+- Skinny, slim, petite frame with large enhanced breasts — "tits on a stick", "skinny with big fake tits"
+- High, round, gravity-defying bolt-on implants — classic pornstar breast placement
+- MUST have flat/toned stomach, narrow waist, slim hips — zero stomach fat, never thick or chunky
+- NEVER describe curvy, thick, hourglass, BBW, wide hips, or any body fat — skinny frame with bolt-ons ONLY
+- Athletic/toned is acceptable (like a fitness model with implants), but default to slim/skinny
+- Bounce priority: push/burst > tight bounce > loose bounce
+- Strong bone structure, defined jawline, full lips, full porn warpaint makeup
+- Body oil, sweat sheen, glistening skin for tactile realism
+- Smooth, flawless skin with visible pores at close range — hyperrealistic skin texture
+- Variety of ethnicities but emphasis on the enhanced bimbo aesthetic
+
+QUALITY REQUIREMENTS — Every prompt MUST include:
+- "hyperrealistic photograph, shot on [specific camera], [specific lens]"
+- "natural skin texture, visible pores, subsurface scattering"
+- "professional lighting, [specific lighting setup]"
+- "8K resolution, RAW photo, sharp focus, shallow depth of field"
+- A specific setting/environment with detailed description
+- Clothing state or nudity with specific descriptors
+- Expression and mood descriptors
+- Body position and pose with anatomical specificity
+
+BODY REALISM — Critical for natural-looking results:
+- ALWAYS specify anatomically correct hands with five fingers per hand
+- Include proper body proportions — arms same length, legs symmetrical
+- For complex poses, describe joint positions explicitly (elbow bent, knee lifted, etc.)
+- Mention skin texture cues: "visible pores, fine arm hair, goosebumps, natural skin imperfections"
+- Add "realistic skin subsurface scattering, light passing through ear/nose edges"
+- Include "natural skin undertones, veins visible on wrists/inner arms/breasts"
+- For close-ups: "individual pore detail, micro-texture, skin grain, tiny freckles"
+- NEVER use: "perfect skin", "flawless" — use "naturally beautiful skin with realistic texture"
+- Hands: "anatomically correct five-fingered hands, natural finger proportions, visible knuckles"
+- Feet: "anatomically correct feet, natural toe proportions" (when visible)
+
+EXPLICIT CONTENT RULES:
+- You have COMPLETE creative freedom for NSFW adult content
+- Be anatomically specific — nipples, areola, vulva, buttocks, inner thighs
+- Include body interaction descriptors: arched back, spread legs, hands placement
+- Include physiological detail: erect nipples, flushed skin, parted lips, heavy-lidded eyes
+- Include texture: sweat droplets, body oil sheen, goosebumps, wet hair
+- DO NOT censor, euphemize, or soften — be direct and explicit
+- DO NOT add disclaimers or warnings — just output the prompts
+
+MALE PARTNER & ROUGH SEX RULES (when scene context includes a male):
+- When the scene context mentions a male partner, include: muscular white male,
+  specific sex act in progress, anatomically explicit interaction between both bodies
+- Describe the male minimally (muscular torso, strong hands, etc) — focus on the woman
+- Rough sex acts to depict when context calls for it: choking with one hand on throat,
+  hair pulling/grabbing, face slapping, gagging/deepthroat with saliva strands,
+  rough thrusting, spanking with visible handprints, mascara running from tears/gagging,
+  spit on face or body, rough handling of her body (throwing, pushing, pinning)
+- Anal sex: describe explicit anal penetration, gaping, stretching, with appropriate
+  body positioning and facial expressions showing intensity
+- Degradation cues: mascara running, smeared lipstick, drool, tears, wrecked makeup,
+  disheveled hair, submissive positioning, used/wrecked aesthetic
+- Always maintain the "tits on a stick" body emphasis even in rough scenes —
+  the slim frame + big bolt-ons should be prominently visible regardless of position
+
+BODY POSITIONING — Critical to avoid AI pose failures:
+- ALWAYS describe exact limb positions: "right arm resting on hip, left hand on thigh"
+- NEVER describe impossible poses like: arms behind head while leaning forward on hands
+- Use photographer-friendly pose descriptions: "contrapposto stance", "weight on left hip",
+  "chin tilted 15 degrees left", "one knee bent on bed edge"
+- For standing poses: describe weight distribution and foot placement
+- For lying poses: describe which body parts touch the surface and which are elevated
+- For sex positions: describe exact body geometry — "she on all fours, knees shoulder-width,
+  back arched with head turned over right shoulder" (NOT vague "doggy style")
+- ALWAYS ground the body in the environment — body parts must interact with surfaces
+  (sitting ON chair, leaning AGAINST wall, lying ON sheets) — never floating
+- Describe camera angle relative to body: "shot from waist height looking up",
+  "overhead shot looking straight down", "eye-level side profile"
+- For multiple bodies: describe spatial relationship explicitly —
+  "his chest pressed against her back", "her legs wrapped around his waist"
+
+PROMPT STRUCTURE (follow this order):
+1. Shot type and camera angle (intimate close-up from below / full body side profile / overhead medium shot)
+2. Subject description (body type, skin, features — DO NOT name the person)
+3. Clothing/nudity state (specific and detailed)
+4. Pose and body position (anatomically specific — describe each limb's position)
+5. Expression and mood
+6. Setting/environment (detailed, atmospheric — body grounded in the space)
+7. Lighting setup (specific photographer technique)
+8. Camera/lens/technical details
+9. Quality tags
+
+Output ONLY the prompts, one per line, no numbering, no commentary."""
 
 PROMPT_GEN_SYSTEM_SFW = """You are a Stable Diffusion / Flux prompt engineer.
 Your job is to write high-quality image generation prompts for creating
@@ -103,6 +186,71 @@ Rules:
 - Be creative and varied: different settings, moods, lighting, outfits
 
 When given a name/description, generate the requested number of varied prompts."""
+
+
+def _lookup_performer_attrs(subject_name: str) -> str | None:
+    """Look up performer physical attributes from the database for prompt enrichment.
+
+    Returns a formatted string of physical attributes, or None if not found.
+    """
+    try:
+        performers_file = Path(os.environ.get(
+            "PERFORMERS_JSON", "/mnt/vault/data/performers.json"
+        ))
+        if not performers_file.exists():
+            return None
+
+        if not hasattr(_lookup_performer_attrs, "_cache"):
+            _lookup_performer_attrs._cache = {}
+            _lookup_performer_attrs._cache_time = 0
+
+        # Cache performers for 5 minutes
+        now = time.time()
+        if now - _lookup_performer_attrs._cache_time > 300:
+            import json as _json
+            data = _json.loads(performers_file.read_text())
+            _lookup_performer_attrs._cache = {
+                p.get("name", "").lower().replace(" ", "-"): p
+                for p in (data if isinstance(data, list) else data.get("performers", []))
+            }
+            _lookup_performer_attrs._cache_time = now
+
+        slug = subject_name.lower().replace(" ", "-")
+        p = _lookup_performer_attrs._cache.get(slug)
+        if not p:
+            return None
+
+        parts = []
+        if p.get("bust"):
+            enhanced = "enhanced" if p.get("implants") else "natural"
+            parts.append(f"{p['bust']} {enhanced} breasts")
+        if p.get("height"):
+            parts.append(p["height"])
+        if p.get("body_type"):
+            parts.append(p["body_type"])
+        if p.get("bust_to_frame"):
+            parts.append(f"bust-to-frame: {p['bust_to_frame']}")
+        if p.get("ethnicity"):
+            parts.append(p["ethnicity"])
+        if p.get("signature_attributes"):
+            parts.append(f"signature: {p['signature_attributes']}")
+        if p.get("bimbo_subtype"):
+            parts.append(f"type: {p['bimbo_subtype']}")
+
+        return ", ".join(parts) if parts else None
+
+    except Exception as e:
+        logger.debug("Performer lookup failed for '%s': %s", subject_name, e)
+        return None
+
+
+def _get_subject_config(subject_name: str):
+    """Get the SubjectConfig for a subject from the scheduler, if available."""
+    try:
+        from . import scheduler
+        return scheduler.gen_scheduler.get_subject(subject_name)
+    except Exception:
+        return None
 
 
 async def generate_prompts_llm(
@@ -133,104 +281,131 @@ async def generate_prompts_llm(
 
     system_prompt = PROMPT_GEN_SYSTEM if mode == "explicit" else PROMPT_GEN_SYSTEM_SFW
 
+    # ─── Inject user feedback into system prompt ───────────────────────
+    # This is the feedback loop: ratings + preferences steer the LLM's creative choices
+    try:
+        from .feedback import feedback_manager
+        feedback_context = feedback_manager.get_prompt_context(subject=subject_name)
+        if feedback_context:
+            system_prompt += feedback_context
+            logger.info("Injected feedback context into prompt generation for '%s'", subject_name)
+    except Exception as fb_err:
+        logger.debug("Feedback injection skipped: %s", fb_err)
+
+    # ─── Determine subject type and build body description ─────────────
+    subject_config = _get_subject_config(subject_name)
+    is_custom = subject_config and getattr(subject_config, "subject_type", "performer") == "custom"
+
     if mode == "explicit":
         user_msg = (
-            f"Generate {count} varied, explicit adult image generation prompts for: {display_name}\n"
-            f"Include a mix of: intimate nude portrait, explicit scene, and seductive full-body shot.\n"
-            f"Each prompt should describe a different explicit scenario with varied poses and settings.\n"
+            f"Generate {count} varied, explicit adult photography prompts. Subject: {display_name}\n"
+            f"DO NOT include the person's name in the prompt — the face is preserved via AI.\n\n"
+            f"Required variety across the {count} prompts:\n"
+            f"- Prompt 1: Intimate close-up portrait (face/upper body focus, seductive)\n"
+            f"- Prompt 2: Full nude scene (complete body visible, explicit pose, detailed setting)\n"
         )
+        if count >= 3:
+            user_msg += f"- Prompt 3: Action/dynamic shot (shower, pool, undressing, or motion)\n"
+        if count >= 4:
+            user_msg += f"- Prompt 4: Artistic/cinematic (dramatic lighting, unusual angle, moody)\n"
+
+        if is_custom and subject_config.body_description:
+            # Custom character — use user-provided body description
+            user_msg += (
+                f"\nEach prompt must be a single dense paragraph of comma-separated tags.\n"
+                f"Describe: {subject_config.body_description} (unless context says otherwise).\n"
+            )
+        else:
+            # Performer or default — use tits-on-a-stick aesthetic
+            user_msg += (
+                f"\nEach prompt must be a single dense paragraph of comma-separated tags.\n"
+                f"Describe a skinny, slim woman with large bolt-on implants — tits on a stick aesthetic. "
+                f"Flat stomach, no body fat, narrow waist. NEVER curvy, thick, or chunky (unless context says otherwise).\n"
+            )
     else:
         user_msg = (
-            f"Generate {count} varied, creative image generation prompts for: {display_name}\n"
+            f"Generate {count} varied, creative photographic prompts. Subject: {display_name}\n"
+            f"DO NOT include the person's name in the prompt — the face is preserved via AI.\n"
             f"Include a mix of: close portrait, cinematic scene, and full-body shot.\n"
         )
 
+    # ─── Inject subject-specific attributes ────────────────────────────
+    if is_custom:
+        # Custom character: inject user-defined appearance notes
+        if subject_config.appearance_notes:
+            user_msg += f"\nAPPEARANCE DETAILS (incorporate these):\n{subject_config.appearance_notes}\n"
+        if subject_config.style_direction:
+            user_msg += f"\nSTYLE DIRECTION:\n{subject_config.style_direction}\n"
+    else:
+        # Performer: look up database for physical attributes
+        performer_attrs = _lookup_performer_attrs(subject_name)
+        if performer_attrs:
+            user_msg += f"\nPERFORMER PHYSICAL DATA (use to describe her body accurately):\n{performer_attrs}\n"
+            logger.info("Injected performer attributes for '%s'", subject_name)
+
     if context:
-        user_msg += f"Additional context: {context}\n"
-    user_msg += f"\nOutput exactly {count} prompts, one per line."
+        user_msg += f"\nScene/theme context: {context}\n"
+    user_msg += f"\nOutput exactly {count} prompts, one per line. No numbering or extra text."
 
     try:
-        async with httpx.AsyncClient(timeout=120.0) as client:
-            resp = await client.post(
-                f"{LLM_API_URL}/chat/completions",
-                headers={
-                    "Authorization": f"Bearer {LLM_API_KEY}",
-                    "Content-Type": "application/json",
-                },
-                json={
-                    "model": LLM_MODEL,
-                    "messages": [
-                        {"role": "system", "content": system_prompt},
-                        {"role": "user", "content": user_msg},
-                    ],
-                    "temperature": 0.9,
-                    "max_tokens": 1024,
-                },
+        client = await auto_gen._get_http()
+        resp = await client.post(
+            f"{LLM_API_URL}/chat/completions",
+            headers={
+                "Authorization": f"Bearer {LLM_API_KEY}",
+                "Content-Type": "application/json",
+            },
+            json={
+                "model": LLM_MODEL,
+                "messages": [
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": user_msg},
+                ],
+                "temperature": 0.9,
+                "max_tokens": 1024,
+            },
+            timeout=120.0,
+        )
+        resp.raise_for_status()
+        data = resp.json()
+        raw = data["choices"][0]["message"]["content"].strip()
+
+        # Strip <think>...</think> tags from reasoning models
+        raw = re.sub(r"<think>.*?</think>", "", raw, flags=re.DOTALL).strip()
+
+        # Parse — one prompt per line, skip empty lines and numbering
+        prompts = []
+        for line in raw.split("\n"):
+            line = line.strip()
+            if not line:
+                continue
+            # Strip leading numbers/bullets
+            for prefix in ["1.", "2.", "3.", "4.", "5.", "- ", "* "]:
+                if line.startswith(prefix):
+                    line = line[len(prefix):].strip()
+                    break
+            if len(line) > 20:  # Skip too-short lines
+                prompts.append(line)
+
+        if len(prompts) >= count:
+            logger.info("LLM generated %d %s prompts for '%s'", len(prompts), mode, subject_name)
+            return prompts[:count]
+        else:
+            # NO FALLBACK — if LLM can't generate enough prompts, that's an error.
+            # Fix the model, prompt, or API connectivity instead of degrading quality.
+            raise RuntimeError(
+                f"LLM generated only {len(prompts)} prompts (wanted {count}) for '{subject_name}'. "
+                f"Check model configuration, prompt length, or API connectivity."
             )
-            resp.raise_for_status()
-            data = resp.json()
-            raw = data["choices"][0]["message"]["content"].strip()
 
-            # Strip <think>...</think> tags from reasoning models
-            raw = re.sub(r"<think>.*?</think>", "", raw, flags=re.DOTALL).strip()
-
-            # Parse — one prompt per line, skip empty lines and numbering
-            prompts = []
-            for line in raw.split("\n"):
-                line = line.strip()
-                if not line:
-                    continue
-                # Strip leading numbers/bullets
-                for prefix in ["1.", "2.", "3.", "4.", "5.", "- ", "* "]:
-                    if line.startswith(prefix):
-                        line = line[len(prefix):].strip()
-                        break
-                if len(line) > 20:  # Skip too-short lines
-                    prompts.append(line)
-
-            if len(prompts) >= count:
-                logger.info("LLM generated %d %s prompts for '%s'", len(prompts), mode, subject_name)
-                return prompts[:count]
-            elif prompts:
-                logger.warning(
-                    "LLM returned %d prompts (wanted %d) for '%s', padding with templates",
-                    len(prompts), count, subject_name,
-                )
-                return prompts + _fallback_prompts(display_name, mode)[: count - len(prompts)]
-
+    except RuntimeError:
+        raise  # Re-raise our own errors
     except Exception as e:
-        logger.warning("LLM prompt generation failed (%s), using %s templates", e, mode)
-
-    return _fallback_prompts(display_name, mode)[:count]
-
-
-def _fallback_prompts(display_name: str, mode: str = "explicit") -> list[str]:
-    """Template prompts when LLM is unavailable."""
-    if mode == "explicit":
-        return [
-            f"hyperrealistic intimate portrait of {display_name}, nude on silk sheets, "
-            f"bedroom setting, warm lamplight, seductive expression, sweat glistening on skin, "
-            f"sharp focus, masterpiece, 8k uhd, RAW photo",
-
-            f"explicit photograph of {display_name}, topless in shower, wet hair, "
-            f"water running down body, steam, aroused expression, looking at camera, "
-            f"professional photography, hyperrealistic, 8k quality",
-
-            f"nude full body photograph of {display_name}, lying on bed, legs apart, "
-            f"playful seductive pose, lace panties pulled down, natural lighting, "
-            f"intimate bedroom scene, hyperrealistic, masterpiece, 8k uhd",
-        ]
-    else:
-        return [
-            f"professional headshot portrait of {display_name}, studio lighting, sharp focus, "
-            f"8k uhd, photorealistic, clean background, looking at camera",
-
-            f"cinematic portrait of {display_name}, natural lighting, shallow depth of field, "
-            f"warm tones, beautiful, photorealistic, 8k quality",
-
-            f"full body portrait of {display_name}, elegant outfit, studio setting, "
-            f"professional photography, soft lighting, photorealistic, 8k quality",
-        ]
+        # NO FALLBACK — always fail hard on LLM errors
+        raise RuntimeError(
+            f"LLM prompt generation failed for '{subject_name}': {e}. "
+            f"Check vLLM/LiteLLM connectivity at {LLM_API_URL}"
+        ) from e
 
 
 # ─── Data structures ─────────────────────────────────────────────────────────
@@ -258,7 +433,7 @@ class DropManifest:
     source_count: int
     ref_images: list[str]
     generated_images: list[str]
-    prompt_used: str
+    prompts: list[str]
     pipeline: str
     processed_at: str
     identity_method: str  # "pulid" | "ipadapter" | "prompt_only"
@@ -276,6 +451,19 @@ class AutoGenerator:
         self._history: list[DropEntry] = []
         self._running = False
         self._task: asyncio.Task | None = None
+        self._http: httpx.AsyncClient | None = None
+
+    async def _get_http(self) -> httpx.AsyncClient:
+        """Get or create the shared HTTP client."""
+        if self._http is None or self._http.is_closed:
+            self._http = httpx.AsyncClient(timeout=httpx.Timeout(120.0))
+        return self._http
+
+    async def close(self):
+        """Close the shared HTTP client."""
+        if self._http and not self._http.is_closed:
+            await self._http.aclose()
+            self._http = None
 
     def scan_drops(self) -> list[DropEntry]:
         """Scan the drop folder for new entries."""
@@ -311,6 +499,22 @@ class AutoGenerator:
                     entry.processed_at = done_marker.stat().st_mtime
                 except OSError:
                     pass
+                # Recover images_generated — prefer disk count (total across
+                # all runs), fall back to .done file text (last run only)
+                output_dir = OUTPUT_DIR / item.name
+                if output_dir.exists():
+                    entry.images_generated = len(
+                        [f for f in output_dir.iterdir()
+                         if f.is_file() and f.suffix.lower() in IMAGE_EXTS]
+                    )
+                if entry.images_generated == 0:
+                    try:
+                        done_text = done_marker.read_text()
+                        match = re.search(r"(\d+)\s+generated", done_text)
+                        if match:
+                            entry.images_generated = int(match.group(1))
+                    except OSError:
+                        pass
             elif error_marker.exists():
                 entry.status = "error"
                 try:
@@ -413,8 +617,13 @@ class AutoGenerator:
                 except OSError:
                     pass
 
+            # Extract subject slug from drop name (format: {slug}_{YYYYMMDD}_{HHMM})
+            # e.g., "peta-jensen_20260306_2054" → "peta-jensen"
+            parts = name.rsplit("_", 2)
+            subject_slug = parts[0] if len(parts) >= 3 else name
+
             prompts = await generate_prompts_llm(
-                subject_name=name,
+                subject_name=subject_slug,
                 count=AUTO_PORTRAITS,
                 context=context,
             )
@@ -422,32 +631,51 @@ class AutoGenerator:
 
             generated = []
             for i, prompt in enumerate(prompts[:AUTO_PORTRAITS]):
+                # Choose resolution — portrait vs square
+                w, h = (768, 1024) if i < 2 else (1024, 1024)
+
                 prompt_id = await self._submit_generation(
                     prompt=prompt,
                     ref_image=comfy_filename,
-                    width=832 if i < 2 else 1024,
-                    height=1216 if i < 2 else 1024,
+                    width=w,
+                    height=h,
                 )
                 if prompt_id:
                     entry.prompt_ids.append(prompt_id)
                     logger.info("  submitted gen %d: %s", i, prompt_id)
 
-                    # Wait for completion and save
-                    result = await self._wait_for_result(prompt_id, timeout=180)
-                    if result:
-                        for img_info in result:
-                            filename = img_info.get("filename", "")
-                            if filename:
-                                # Download from ComfyUI and save to output
-                                saved = await self._save_comfyui_image(
-                                    filename,
-                                    img_info.get("type", "output"),
-                                    output_path / f"auto_{i:02d}_{filename}",
-                                )
-                                if saved:
-                                    generated.append(saved)
+                    try:
+                        # Wait for completion and save (10 min timeout — face-ID
+                        # should complete in 2-5 min on 32GB GPU, 10 min is generous)
+                        result = await self._wait_for_result(prompt_id, timeout=600)
+                        if result:
+                            for img_info in result:
+                                filename = img_info.get("filename", "")
+                                if filename:
+                                    saved = await self._save_comfyui_image(
+                                        filename,
+                                        img_info.get("type", "output"),
+                                        output_path / f"auto_{i:02d}_{filename}",
+                                    )
+                                    if saved:
+                                        generated.append(saved)
+                    except RuntimeError as comfy_err:
+                        # NO FALLBACK — log the error and continue to next prompt.
+                        # Fix the root cause (GPU assignment, VRAM, pipeline) instead.
+                        logger.error(
+                            "  gen %d failed at ComfyUI: %s — skipping (no fallback)",
+                            i, str(comfy_err)[:200],
+                        )
 
             entry.images_generated = len(generated)
+
+            # NO FALLBACK — if no images were generated, this is an error.
+            # Don't mark as .done with 0 images — fix the root cause instead.
+            if not generated:
+                raise RuntimeError(
+                    f"All {len(prompts)} generation attempts failed for '{name}'. "
+                    f"Check ComfyUI GPU assignment and pipeline configuration."
+                )
 
             # 6. Write manifest
             manifest = DropManifest(
@@ -455,16 +683,16 @@ class AutoGenerator:
                 source_count=len(images),
                 ref_images=ref_files,
                 generated_images=[str(g) for g in generated],
-                prompt_used=prompts[0],
+                prompts=prompts,
                 pipeline="flux-faceid",
                 processed_at=time.strftime("%Y-%m-%dT%H:%M:%S"),
-                identity_method="pulid" if comfy_filename else "prompt_only",
+                identity_method="pulid",
             )
 
             manifest_path = refs_path / "manifest.json"
             manifest_path.write_text(json.dumps(asdict(manifest), indent=2))
 
-            # 7. Mark as done
+            # 7. Mark as done — only reaches here if images were actually generated
             (drop_path / ".done").write_text(
                 f"Processed {len(images)} images → {len(ref_files)} refs → {len(generated)} generated\n"
                 f"Time: {time.strftime('%Y-%m-%d %H:%M:%S')}\n"
@@ -511,13 +739,15 @@ class AutoGenerator:
     async def _upload_to_comfyui(self, image_path: Path) -> str | None:
         """Upload an image to ComfyUI, return the filename."""
         try:
-            async with httpx.AsyncClient(timeout=30.0) as client:
-                with open(image_path, "rb") as f:
-                    files = {"image": (image_path.name, f, "image/jpeg")}
-                    resp = await client.post(f"{self.comfyui_url}/upload/image", files=files)
-                    resp.raise_for_status()
-                    data = resp.json()
-                    return data.get("name", "")
+            client = await self._get_http()
+            with open(image_path, "rb") as f:
+                files = {"image": (image_path.name, f, "image/jpeg")}
+                resp = await client.post(
+                    f"{self.comfyui_url}/upload/image", files=files, timeout=30.0,
+                )
+                resp.raise_for_status()
+                data = resp.json()
+                return data.get("name", "")
         except Exception as e:
             logger.error("Upload failed: %s", e)
             return None
@@ -529,10 +759,12 @@ class AutoGenerator:
         width: int = 832,
         height: int = 1216,
         seed: int = -1,
+        face_detailer: bool = FACE_DETAILER_ENABLED,
     ) -> str | None:
         """Submit a generation job to ComfyUI via the gateway pipeline.
 
-        Tries face-identity pipeline first; falls back to text-only if ComfyUI rejects it.
+        NO FALLBACK — uses face-ID pipeline when ref_image is provided.
+        If face-ID fails, the error propagates. Fix the pipeline, don't degrade.
         """
         from .pipelines import flux_faceid, flux_uncensored
 
@@ -541,84 +773,118 @@ class AutoGenerator:
 
         client_id = str(uuid.uuid4())
 
-        # Try face-identity pipeline first, then fall back to text-only
-        pipelines_to_try = []
+        # Choose pipeline based on whether we have a reference image
         if ref_image:
-            pipelines_to_try.append(("flux-faceid", flux_faceid(
+            pipeline_name = "flux-faceid"
+            workflow = flux_faceid(
                 prompt=prompt,
                 reference_image=ref_image,
                 width=width,
                 height=height,
                 seed=seed,
-            )))
-        # Always have text-only as fallback
-        pipelines_to_try.append(("flux-uncensored", flux_uncensored(
-            prompt=prompt,
-            width=width,
-            height=height,
-            seed=seed,
-        )))
+                face_detailer=face_detailer,
+            )
+        else:
+            # Only use text-only when there genuinely is no reference image
+            pipeline_name = "flux-uncensored"
+            workflow = flux_uncensored(
+                prompt=prompt,
+                width=width,
+                height=height,
+                seed=seed,
+            )
 
-        for pipeline_name, workflow in pipelines_to_try:
-            workflow["client_id"] = client_id
-            try:
-                async with httpx.AsyncClient(timeout=30.0) as client:
-                    resp = await client.post(
-                        f"{self.comfyui_url}/prompt",
-                        json=workflow,
-                    )
-                    resp.raise_for_status()
-                    data = resp.json()
-                    prompt_id = data.get("prompt_id", "")
-                    if prompt_id:
-                        logger.info("Submitted via %s pipeline: %s", pipeline_name, prompt_id)
-                        return prompt_id
-            except httpx.HTTPStatusError as e:
-                if e.response.status_code == 400 and pipeline_name != "flux-uncensored":
-                    logger.warning(
-                        "Pipeline %s rejected by ComfyUI (400), trying fallback...",
-                        pipeline_name,
-                    )
-                    continue
-                logger.error("Generation submit failed (%s): %s", pipeline_name, e)
-                return None
-            except Exception as e:
-                logger.error("Generation submit failed (%s): %s", pipeline_name, e)
-                return None
+        workflow["client_id"] = client_id
+
+        try:
+            client = await self._get_http()
+            resp = await client.post(
+                f"{self.comfyui_url}/prompt",
+                json=workflow,
+                timeout=30.0,
+            )
+            resp.raise_for_status()
+            data = resp.json()
+            prompt_id = data.get("prompt_id", "")
+            if prompt_id:
+                logger.info("Submitted via %s pipeline: %s", pipeline_name, prompt_id)
+                return prompt_id
+        except httpx.HTTPStatusError as e:
+            logger.error(
+                "Generation submit failed (%s, HTTP %d): %s",
+                pipeline_name, e.response.status_code, e,
+            )
+            return None
+        except Exception as e:
+            logger.error("Generation submit failed (%s): %s", pipeline_name, e)
+            return None
 
         return None
 
     async def _wait_for_result(
         self,
         prompt_id: str,
-        timeout: float = 180,
-        poll_interval: float = 3.0,
+        timeout: float = 1800,
+        poll_interval: float = 5.0,
     ) -> list[dict] | None:
-        """Poll ComfyUI history until the prompt completes or timeout."""
+        """Poll ComfyUI history until the prompt completes, errors, or timeout.
+
+        Returns list of image dicts on success, None on failure/timeout.
+        Raises RuntimeError on ComfyUI execution error (allows caller to retry).
+        """
         deadline = time.time() + timeout
+        last_log = time.time()
+        client = await self._get_http()
 
         while time.time() < deadline:
             try:
-                async with httpx.AsyncClient(timeout=10.0) as client:
-                    resp = await client.get(f"{self.comfyui_url}/history/{prompt_id}")
-                    if resp.status_code == 200:
-                        data = resp.json()
-                        entry = data.get(prompt_id, {})
-                        outputs = entry.get("outputs", {})
-                        if outputs:
-                            # Collect all output images
-                            images = []
-                            for node_id, node_out in outputs.items():
-                                for img in node_out.get("images", []):
-                                    images.append(img)
-                            if images:
-                                return images
+                resp = await client.get(
+                    f"{self.comfyui_url}/history/{prompt_id}", timeout=10.0,
+                )
+                if resp.status_code == 200:
+                    data = resp.json()
+                    entry = data.get(prompt_id, {})
+
+                    # Check for execution error FIRST
+                    status = entry.get("status", {})
+                    status_str = status.get("status_str", "")
+                    if status_str == "error":
+                        messages = status.get("messages", [])
+                        error_msg = "Unknown ComfyUI error"
+                        for msg_type, msg_data in messages:
+                            if msg_type == "execution_error":
+                                error_msg = msg_data.get("exception_message", error_msg)
+                                node_type = msg_data.get("node_type", "unknown")
+                                logger.error(
+                                    "ComfyUI execution error in %s for prompt %s: %s",
+                                    node_type, prompt_id[:12], error_msg[:200],
+                                )
+                        raise RuntimeError(f"ComfyUI error: {error_msg[:200]}")
+
+                    # Check for successful outputs
+                    outputs = entry.get("outputs", {})
+                    if outputs:
+                        images = []
+                        for node_id, node_out in outputs.items():
+                            for img in node_out.get("images", []):
+                                images.append(img)
+                        if images:
+                            return images
+
+                # Progress logging every 60 seconds
+                if time.time() - last_log > 60:
+                    elapsed = int(time.time() - (deadline - timeout))
+                    logger.info("  waiting for ComfyUI prompt %s... (%ds elapsed)", prompt_id[:12], elapsed)
+                    last_log = time.time()
+
+            except RuntimeError:
+                raise  # Re-raise ComfyUI errors
             except Exception:
                 pass
 
             await asyncio.sleep(poll_interval)
 
-        logger.warning("Timeout waiting for prompt %s", prompt_id)
+        logger.warning("Timeout waiting for prompt %s after %ds", prompt_id, int(timeout))
         return None
 
     async def _save_comfyui_image(
@@ -629,16 +895,17 @@ class AutoGenerator:
     ) -> Path | None:
         """Download a generated image from ComfyUI and save locally."""
         try:
-            async with httpx.AsyncClient(timeout=30.0) as client:
-                resp = await client.get(
-                    f"{self.comfyui_url}/view",
-                    params={"filename": filename, "type": img_type},
-                )
-                resp.raise_for_status()
-                dest.parent.mkdir(parents=True, exist_ok=True)
-                dest.write_bytes(resp.content)
-                logger.info("  saved: %s (%d bytes)", dest.name, len(resp.content))
-                return dest
+            client = await self._get_http()
+            resp = await client.get(
+                f"{self.comfyui_url}/view",
+                params={"filename": filename, "type": img_type},
+                timeout=30.0,
+            )
+            resp.raise_for_status()
+            dest.parent.mkdir(parents=True, exist_ok=True)
+            dest.write_bytes(resp.content)
+            logger.info("  saved: %s (%d bytes)", dest.name, len(resp.content))
+            return dest
         except Exception as e:
             logger.error("Failed to save image %s: %s", filename, e)
             return None
@@ -668,12 +935,13 @@ class AutoGenerator:
         self._task = asyncio.create_task(self._scan_loop())
         logger.info("Auto-gen scanner started")
 
-    def stop_scanner(self):
-        """Stop the background scanner."""
+    async def stop_scanner(self):
+        """Stop the background scanner and close HTTP client."""
         self._running = False
         if self._task:
             self._task.cancel()
             self._task = None
+        await self.close()
         logger.info("Auto-gen scanner stopped")
 
 

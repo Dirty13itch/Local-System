@@ -22,8 +22,8 @@ logger = setup_logging("gateway.queens", settings)
 
 router = APIRouter(tags=["queens"])
 
-_dev_host = settings.network.dev
-COMFYUI_URL = os.environ.get("COMFYUI_URL", f"http://{_dev_host}:8188")
+# ComfyUI on WORKSHOP node
+COMFYUI_URL = os.environ.get("COMFYUI_URL", f"http://{settings.network.workshop}:8188")
 
 
 def _client(request: Request) -> httpx.AsyncClient:

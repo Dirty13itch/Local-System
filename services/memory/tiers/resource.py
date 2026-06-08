@@ -128,7 +128,7 @@ class ResourceTier(BaseTier):
         return MemoryEntry(
             id=payload.get("id", entry_id),
             tier=MemoryTier.RESOURCE,
-            content=payload.get("content", ""),
+            content=payload.get("content", "") or payload.get("text", ""),
             metadata=payload.get("metadata", {}),
             source=payload.get("source", ""),
             confidence=payload.get("confidence", 1.0),
@@ -169,7 +169,7 @@ class ResourceTier(BaseTier):
             results.append(MemoryEntry(
                 id=payload.get("id", str(hit.id)),
                 tier=MemoryTier.RESOURCE,
-                content=payload.get("content", ""),
+                content=payload.get("content", "") or payload.get("text", ""),
                 metadata=payload.get("metadata", {}),
                 source=payload.get("source", ""),
                 confidence=hit.score,
