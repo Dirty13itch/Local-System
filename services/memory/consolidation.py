@@ -1,12 +1,6 @@
 """Memory consolidation pipeline — promotes memories between tiers.
 
-Runs on a schedule (daily at 3am by default) to:
-1. Working → Episodic: Save important working memory before it expires
-2. Episodic → Semantic: Extract entities/relations from repeated patterns
-3. Episodic → Vault: Archive old episodic memories (>30 days)
-4. Resource dedup: Merge duplicate chunks, update stale embeddings
-
-Triggered via MIND's /v1/consolidate endpoint or cron.
+Routes all writes through the Quality Gate (DEV:8790) for dedup and validation.
 """
 
 from __future__ import annotations
@@ -18,6 +12,8 @@ from typing import Any
 import httpx
 
 logger = logging.getLogger("memory.consolidation")
+
+QUALITY_GATE_URL = "http://localhost:8790"
 
 
 class ConsolidationPipeline:
@@ -52,61 +48,118 @@ class ConsolidationPipeline:
             "episodic_to_vault": 0,
             "entities_extracted": 0,
             "duplicates_merged": 0,
+            "duplicates_skipped": 0,
+            "rejected": 0,
             "errors": [],
         }
 
         try:
-            results["working_to_episodic"] = await self._promote_working()
+            promoted, skipped, rejected = await self._promote_working()
+            results["working_to_episodic"] = promoted
+            results["duplicates_skipped"] += skipped
+            results["rejected"] += rejected
         except Exception as e:
             results["errors"].append(f"working_to_episodic: {e}")
-            logger.warning(f"Working→Episodic failed: {e}")
+            logger.warning(f"Working->Episodic failed: {e}")
 
         try:
-            results["episodic_to_vault"] = await self._archive_old_episodic()
+            archived, skipped, rejected = await self._archive_old_episodic()
+            results["episodic_to_vault"] = archived
+            results["duplicates_skipped"] += skipped
+            results["rejected"] += rejected
         except Exception as e:
             results["errors"].append(f"episodic_to_vault: {e}")
-            logger.warning(f"Episodic→Vault failed: {e}")
+            logger.warning(f"Episodic->Vault failed: {e}")
 
         results["finished_at"] = datetime.now(timezone.utc).isoformat()
         logger.info(
             f"Consolidation complete: "
-            f"W→E={results['working_to_episodic']}, "
-            f"E→V={results['episodic_to_vault']}, "
+            f"W->E={results['working_to_episodic']}, "
+            f"E->V={results['episodic_to_vault']}, "
+            f"dupes_skipped={results['duplicates_skipped']}, "
+            f"rejected={results['rejected']}, "
             f"errors={len(results['errors'])}"
         )
         return results
 
-    async def _promote_working(self) -> int:
-        """Promote important working memory to episodic tier."""
-        # Get all working memory entries
+    async def _store_via_gate(self, content: str, collection: str, metadata: dict) -> str:
+        """Store content through the Quality Gate for validation and dedup.
+        
+        Returns: action (STORED, DUPLICATE, ENRICHED, REJECTED)
+        """
+        try:
+            resp = await self._client.post(
+                f"{QUALITY_GATE_URL}/store",
+                json={
+                    "content": content,
+                    "collection": collection,
+                    "metadata": metadata,
+                    "source_env": "production",
+                },
+                timeout=30.0,
+            )
+            if resp.status_code == 200:
+                result = resp.json()
+                action = result.get("action", "UNKNOWN")
+                if action in ("DUPLICATE", "ENRICHED"):
+                    logger.debug(f"Quality Gate: {action} for {collection} — {result.get('reason', '')[:60]}")
+                return action
+            else:
+                logger.warning(f"Quality Gate returned {resp.status_code}, falling back to direct store")
+                return "FALLBACK"
+        except Exception as e:
+            logger.warning(f"Quality Gate unavailable ({e}), falling back to direct store")
+            return "FALLBACK"
+
+    async def _promote_working(self) -> tuple[int, int, int]:
+        """Promote important working memory to episodic tier.
+        
+        Returns: (promoted, skipped_dupes, rejected)
+        """
         resp = await self._client.get(f"{self.memory_url}/v1/memory/working")
         if resp.status_code != 200:
-            return 0
+            return 0, 0, 0
 
         data = resp.json()
         promoted = 0
+        skipped = 0
+        rejected = 0
 
-        # Promote entries with high access count or importance flags
         for key, entry in data.get("entries", {}).items():
             if isinstance(entry, dict):
                 access_count = entry.get("access_count", 0)
                 importance = entry.get("importance", 0)
                 if access_count >= self.min_access_count or importance >= 0.7:
-                    # Store to episodic
-                    await self._client.post(
-                        f"{self.memory_url}/v1/memory/episodic",
-                        json={
-                            "content": entry.get("content", str(entry)),
-                            "source": "consolidation:working",
-                            "metadata": {"original_key": key, "promoted_at": datetime.now(timezone.utc).isoformat()},
-                        },
-                    )
-                    promoted += 1
+                    content = entry.get("content", str(entry))
+                    metadata = {
+                        "source": "consolidation:working",
+                        "original_key": key,
+                        "promoted_at": datetime.now(timezone.utc).isoformat(),
+                    }
+                    
+                    action = await self._store_via_gate(content, "episodic", metadata)
+                    
+                    if action == "STORED":
+                        promoted += 1
+                    elif action in ("DUPLICATE", "ENRICHED"):
+                        skipped += 1
+                    elif action == "REJECTED":
+                        rejected += 1
+                    elif action == "FALLBACK":
+                        # Quality Gate unavailable — fall back to direct store
+                        await self._client.post(
+                            f"{self.memory_url}/v1/memory/episodic",
+                            json={"content": content, "source": "consolidation:working", "metadata": metadata},
+                        )
+                        promoted += 1
 
-        return promoted
+        return promoted, skipped, rejected
 
-    async def _archive_old_episodic(self) -> int:
-        """Archive old episodic memories to vault tier."""
+    async def _archive_old_episodic(self) -> tuple[int, int, int]:
+        """Archive old episodic memories to vault tier.
+        
+        Returns: (archived, skipped_dupes, rejected)
+        """
         cutoff = (datetime.now(timezone.utc) - timedelta(days=self.min_episodic_age_days)).isoformat()
 
         resp = await self._client.post(
@@ -119,25 +172,34 @@ class ConsolidationPipeline:
             },
         )
         if resp.status_code != 200:
-            return 0
+            return 0, 0, 0
 
         results = resp.json().get("results", [])
         archived = 0
+        skipped = 0
+        rejected = 0
 
         for result in results:
-            # Store to vault
-            await self._client.post(
-                f"{self.memory_url}/v1/memory/vault",
-                json={
-                    "tier": "vault",
-                    "content": result.get("content", ""),
-                    "source": "consolidation:episodic",
-                    "metadata": {
-                        "original_id": result.get("id"),
-                        "archived_at": datetime.now(timezone.utc).isoformat(),
-                    },
-                },
-            )
-            archived += 1
+            content = result.get("content", "")
+            metadata = {
+                "source": "consolidation:episodic",
+                "original_id": result.get("id"),
+                "archived_at": datetime.now(timezone.utc).isoformat(),
+            }
+            
+            action = await self._store_via_gate(content, "knowledge_vault", metadata)
+            
+            if action == "STORED":
+                archived += 1
+            elif action in ("DUPLICATE", "ENRICHED"):
+                skipped += 1
+            elif action == "REJECTED":
+                rejected += 1
+            elif action == "FALLBACK":
+                await self._client.post(
+                    f"{self.memory_url}/v1/memory/vault",
+                    json={"tier": "vault", "content": content, "source": "consolidation:episodic", "metadata": metadata},
+                )
+                archived += 1
 
-        return archived
+        return archived, skipped, rejected

@@ -64,17 +64,25 @@ _consolidation_task: asyncio.Task | None = None
 _qdrant = None
 _meili = None
 
+# Shared HTTP client — set during lifespan, used by _get_embedding
+_http_client: httpx.AsyncClient | None = None
+
 
 async def _get_embedding(text: str) -> list[float]:
-    """Get embedding for a text string via vLLM."""
-    async with httpx.AsyncClient() as client:
-        resp = await client.post(
-            f"{settings.inference.vllm_embedding_host}/v1/embeddings",
-            json={"model": settings.rag.embedding_model, "input": [text]},
-            timeout=30.0,
-        )
-        resp.raise_for_status()
-        return resp.json()["data"][0]["embedding"]
+    """Get embedding for a text string via vLLM.
+
+    Uses the shared HTTP client initialized during app lifespan.
+    """
+    client = _http_client
+    if client is None:
+        raise RuntimeError("HTTP client not initialized — call during lifespan only")
+    resp = await client.post(
+        f"{settings.inference.vllm_embedding_host}/v1/embeddings",
+        json={"model": settings.rag.embedding_model, "input": [text]},
+        timeout=30.0,
+    )
+    resp.raise_for_status()
+    return resp.json()["data"][0]["embedding"]
 
 
 
@@ -93,11 +101,12 @@ async def _periodic_consolidation():
 
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
-    global _qdrant, _meili, _consolidation
+    global _qdrant, _meili, _consolidation, _http_client
 
     logger.info("Memory service starting — initializing 6 tiers")
     app.state.start_time = time.time()
     app.state.http_client = httpx.AsyncClient(timeout=httpx.Timeout(60.0))
+    _http_client = app.state.http_client
 
     # --- Initialize tiers ---
 

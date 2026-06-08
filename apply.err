@@ -1,0 +1,64 @@
+error: patch failed: .env.example:1
+error: .env.example: patch does not apply
+error: patch failed: services/gateway/auto_gen.py:31
+error: services/gateway/auto_gen.py: patch does not apply
+error: patch failed: services/gateway/main.py:21
+error: services/gateway/main.py: patch does not apply
+error: patch failed: services/gateway/pipelines.py:4
+error: services/gateway/pipelines.py: patch does not apply
+error: patch failed: services/gateway/routers/chat.py:129
+error: services/gateway/routers/chat.py: patch does not apply
+error: patch failed: services/gateway/routers/generate.py:11
+error: services/gateway/routers/generate.py: patch does not apply
+error: patch failed: services/gateway/routers/health.py:1
+error: services/gateway/routers/health.py: patch does not apply
+error: patch failed: services/gateway/routers/memory.py:14
+error: services/gateway/routers/memory.py: patch does not apply
+error: patch failed: services/gateway/routers/queens.py:22
+error: services/gateway/routers/queens.py: patch does not apply
+error: patch failed: services/gateway/static/gallery.html:1
+error: services/gateway/static/gallery.html: patch does not apply
+error: patch failed: services/mcp-servers/ls-inference/server.py:8
+error: services/mcp-servers/ls-inference/server.py: patch does not apply
+error: patch failed: services/mcp-servers/ls-infra/server.py:1
+error: services/mcp-servers/ls-infra/server.py: patch does not apply
+error: patch failed: services/mcp-servers/ls-knowledge/server.py:23
+error: services/mcp-servers/ls-knowledge/server.py: patch does not apply
+error: patch failed: services/mcp-servers/ls-tools/server.py:1
+error: services/mcp-servers/ls-tools/server.py: patch does not apply
+error: patch failed: services/memory/main.py:1
+error: services/memory/main.py: patch does not apply
+error: patch failed: services/memory/search.py:177
+error: services/memory/search.py: patch does not apply
+error: patch failed: services/memory/tiers/episodic.py:1
+error: services/memory/tiers/episodic.py: patch does not apply
+error: patch failed: services/memory/tiers/resource.py:128
+error: services/memory/tiers/resource.py: patch does not apply
+error: patch failed: services/memory/tiers/vault.py:195
+error: services/memory/tiers/vault.py: patch does not apply
+error: patch failed: services/mind/main.py:1
+error: services/mind/main.py: patch does not apply
+error: patch failed: services/perception/main.py:1
+error: services/perception/main.py: patch does not apply
+error: patch failed: shared/python/local_system/config.py:1
+error: shared/python/local_system/config.py: patch does not apply
+error: patch failed: shared/python/local_system/models.py:1
+error: shared/python/local_system/models.py: patch does not apply
+error: patch failed: shared/python/local_system/notifications.py:1
+error: shared/python/local_system/notifications.py: patch does not apply
+error: patch failed: ui/src/app/agents/page.tsx:1
+error: ui/src/app/agents/page.tsx: patch does not apply
+error: patch failed: ui/src/app/documents/page.tsx:1
+error: ui/src/app/documents/page.tsx: patch does not apply
+error: patch failed: ui/src/app/generate/page.tsx:9
+error: ui/src/app/generate/page.tsx: patch does not apply
+error: patch failed: ui/src/app/memory/page.tsx:1
+error: ui/src/app/memory/page.tsx: patch does not apply
+error: patch failed: ui/src/app/nodes/page.tsx:1
+error: ui/src/app/nodes/page.tsx: patch does not apply
+error: patch failed: ui/src/app/page.tsx:1
+error: ui/src/app/page.tsx: patch does not apply
+error: patch failed: ui/src/components/sidebar.tsx:1
+error: ui/src/components/sidebar.tsx: patch does not apply
+error: patch failed: ui/src/lib/api.ts:49
+error: ui/src/lib/api.ts: patch does not apply

@@ -9,8 +9,6 @@ from __future__ import annotations
 
 import logging
 
-import time
-
 import httpx
 from fastapi import APIRouter, HTTPException, Request, WebSocket, WebSocketDisconnect
 from fastapi.responses import StreamingResponse
@@ -22,8 +20,6 @@ from local_system.models import (
     Message,
     TokenUsage,
 )
-
-from local_system.metrics import LLM_CALLS, LLM_LATENCY, LLM_TOKENS
 
 from ..content_router import (
     classify_content,
@@ -143,20 +139,6 @@ def _chat_payload(body: ChatRequest, stream: bool = False) -> dict:
     }
 
 
-
-def _record_llm_call(model: str, status: str, duration: float, usage: dict | None = None) -> None:
-    """Record LLM call metrics."""
-    LLM_CALLS.labels(service=gateway, model=model, status=status).inc()
-    LLM_LATENCY.labels(service=gateway, model=model).observe(duration)
-    if usage:
-        prompt_tokens = usage.get(prompt_tokens, 0)
-        completion_tokens = usage.get(completion_tokens, 0)
-        if prompt_tokens:
-            LLM_TOKENS.labels(service=gateway, model=model, direction=input).inc(prompt_tokens)
-        if completion_tokens:
-            LLM_TOKENS.labels(service=gateway, model=model, direction=output).inc(completion_tokens)
-
-
 # ─── Routes ───────────────────────────────────────────────────────────────
 
 
@@ -187,8 +169,6 @@ async def chat(request: Request, body: ChatRequest) -> ChatResponse:
                 body.model = UNCENSORED_MODEL
 
     client = _client(request)
-    t0 = time.monotonic()
-    final_model = body.model
     try:
         resp = await client.post(
             f"{_litellm_url()}/v1/chat/completions",
@@ -208,7 +188,6 @@ async def chat(request: Request, body: ChatRequest) -> ChatResponse:
                 body.model, UNCENSORED_MODEL,
             )
             body.model = UNCENSORED_MODEL
-            final_model = UNCENSORED_MODEL
             resp = await client.post(
                 f"{_litellm_url()}/v1/chat/completions",
                 json=_chat_payload(body),
@@ -218,31 +197,23 @@ async def chat(request: Request, body: ChatRequest) -> ChatResponse:
             data = resp.json()
 
         if resp.status_code >= 400:
-            _record_llm_call(final_model, "error", time.monotonic() - t0)
             raise HTTPException(
                 status_code=resp.status_code,
                 detail=data.get("error", {}).get("message", str(data)),
             )
-
-        duration = time.monotonic() - t0
-        usage = data.get("usage", {})
-        served_model = data.get("model", final_model)
-        _record_llm_call(served_model, "success", duration, usage)
 
         choice = data["choices"][0]
         return ChatResponse(
             id=data["id"],
             model=data["model"],
             message=Message(role=choice["message"]["role"], content=choice["message"]["content"]),
-            usage=TokenUsage(**usage),
+            usage=TokenUsage(**data.get("usage", {})),
         )
     except HTTPException:
         raise
     except httpx.HTTPStatusError as e:
-        _record_llm_call(final_model, "error", time.monotonic() - t0)
         raise HTTPException(status_code=e.response.status_code, detail=str(e)) from e
     except httpx.RequestError as e:
-        _record_llm_call(final_model, "error", time.monotonic() - t0)
         raise HTTPException(status_code=502, detail=f"LiteLLM unavailable: {e}") from e
 
 
@@ -270,25 +241,17 @@ async def chat_stream(request: Request, body: ChatRequest) -> StreamingResponse:
                 body.model = UNCENSORED_MODEL
 
     client = _client(request)
-    model = body.model
-    t0_stream = time.monotonic()
 
     async def event_stream():
-        try:
-            async with client.stream(
-                "POST",
-                f"{_litellm_url()}/v1/chat/completions",
-                json=_chat_payload(body, stream=True),
-                headers=_litellm_headers(),
-                timeout=300.0,
-            ) as resp:
-                async for chunk in resp.aiter_text():
-                    yield chunk
-            LLM_CALLS.labels(service="gateway", model=model, status="success").inc()
-            LLM_LATENCY.labels(service="gateway", model=model).observe(time.monotonic() - t0_stream)
-        except Exception:
-            LLM_CALLS.labels(service="gateway", model=model, status="error").inc()
-            raise
+        async with client.stream(
+            "POST",
+            f"{_litellm_url()}/v1/chat/completions",
+            json=_chat_payload(body, stream=True),
+            headers=_litellm_headers(),
+            timeout=300.0,
+        ) as resp:
+            async for chunk in resp.aiter_text():
+                yield chunk
 
     return StreamingResponse(event_stream(), media_type="text/event-stream")
 

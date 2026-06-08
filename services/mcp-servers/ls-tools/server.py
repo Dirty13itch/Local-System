@@ -16,6 +16,7 @@ import os
 import subprocess
 from pathlib import Path
 
+import httpx
 from fastmcp import FastMCP
 
 # --- Configuration ---
@@ -27,6 +28,16 @@ FOUNDRY_HOST = os.environ.get("FOUNDRY_HOST", "192.168.1.244")
 WORKSHOP_HOST = os.environ.get("WORKSHOP_HOST", "192.168.1.225")
 VAULT_HOST = os.environ.get("VAULT_HOST", "192.168.1.203")
 DEV_HOST = os.environ.get("DEV_HOST", "192.168.1.189")
+
+_health_client: httpx.AsyncClient | None = None
+
+
+async def _get_health_client() -> httpx.AsyncClient:
+    """Get or create the shared health-check client."""
+    global _health_client
+    if _health_client is None or _health_client.is_closed:
+        _health_client = httpx.AsyncClient(timeout=httpx.Timeout(5.0))
+    return _health_client
 
 # --- Tool Registry ---
 
@@ -189,10 +200,6 @@ async def cluster_quick_check() -> dict:
 
     Faster than ls-infra's full cluster_health — just checks reachability.
     """
-    import asyncio
-
-    import httpx
-
     nodes = {
         "FOUNDRY": (FOUNDRY_HOST, 8000, "/health"),
         "WORKSHOP": (WORKSHOP_HOST, 8000, "/health"),
@@ -201,13 +208,13 @@ async def cluster_quick_check() -> dict:
     }
 
     results = {}
-    async with httpx.AsyncClient(timeout=3.0) as client:
-        for name, (host, port, path) in nodes.items():
-            try:
-                resp = await client.get(f"http://{host}:{port}{path}")
-                results[name] = f"up ({resp.status_code})"
-            except Exception:
-                results[name] = "down"
+    client = await _get_health_client()
+    for name, (host, port, path) in nodes.items():
+        try:
+            resp = await client.get(f"http://{host}:{port}{path}")
+            results[name] = f"up ({resp.status_code})"
+        except Exception:
+            results[name] = "down"
 
     return results
 
@@ -221,12 +228,13 @@ async def restart_service(
 
     Args:
         service: Service name (e.g., "gateway", "memory", "litellm")
-        node: Node to restart on — "dev", "vault", "foundry" (default: "dev")
+        node: Node to restart on — "dev", "vault", "foundry", "workshop" (default: "dev")
     """
     host_map = {
         "dev": None,  # local
         "vault": f"root@{VAULT_HOST}",
         "foundry": f"athanor@{FOUNDRY_HOST}",
+        "workshop": f"athanor@{WORKSHOP_HOST}",
     }
 
     ssh_target = host_map.get(node)
@@ -237,7 +245,7 @@ async def restart_service(
     if node == "dev":
         try:
             result = subprocess.run(
-                ["sudo", "systemctl", "restart", f"ls-{service}"],
+                ["sudo", "systemctl", "restart", f"local-system-{service}"],
                 capture_output=True, text=True, timeout=15,
             )
             if result.returncode != 0:
@@ -279,18 +287,19 @@ async def tail_logs(
     Args:
         service: Service name (e.g., "gateway", "memory", "litellm")
         lines: Number of lines to return (default: 30)
-        node: Node — "dev", "vault", "foundry" (default: "dev")
+        node: Node — "dev", "vault", "foundry", "workshop" (default: "dev")
     """
     host_map = {
         "dev": None,
         "vault": f"root@{VAULT_HOST}",
         "foundry": f"athanor@{FOUNDRY_HOST}",
+        "workshop": f"athanor@{WORKSHOP_HOST}",
     }
 
     ssh_target = host_map.get(node)
 
     if node == "dev":
-        cmd = ["journalctl", "-u", f"ls-{service}", "-n", str(lines), "--no-pager"]
+        cmd = ["journalctl", "-u", f"local-system-{service}", "-n", str(lines), "--no-pager"]
     elif ssh_target:
         cmd = ["ssh", ssh_target, f"docker logs --tail {lines} {service}"]
     else:

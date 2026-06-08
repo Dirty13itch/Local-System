@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import time
 from contextlib import asynccontextmanager
+from datetime import datetime, timezone
 from typing import AsyncGenerator
 
 import httpx
@@ -461,7 +462,7 @@ async def _run_task(task_id: str, config: dict) -> None:
             status="completed",
             result=result.get("response", ""),
             iterations=len(result.get("tool_calls", [])),
-            completed_at=__import__("datetime").datetime.now(__import__("datetime").timezone.utc),
+            completed_at=datetime.now(timezone.utc),
         )
 
         if _events.ready:
@@ -512,9 +513,9 @@ async def cluster_status() -> dict:
     http = app.state.http_client
     results = {}
 
-    async def _check(name: str, url: str):
+    async def _check(name: str, url: str, headers: dict | None = None):
         try:
-            resp = await http.get(url, timeout=5.0)
+            resp = await http.get(url, headers=headers or {}, timeout=5.0)
             results[name] = {"status": "up", "data": resp.json()}
         except Exception as e:
             results[name] = {"status": "down", "error": str(e)}
@@ -523,19 +524,27 @@ async def cluster_status() -> dict:
     litellm_h = settings.inference.litellm_host.rstrip("/")
     reasoning_h = settings.inference.vllm_reasoning_host.rstrip("/")
     coding_h = settings.inference.vllm_coding_host.rstrip("/")
+    creative_h = settings.inference.vllm_creative_host.rstrip("/")
     fast_h = settings.inference.vllm_fast_host.rstrip("/")
     embedding_h = settings.inference.vllm_embedding_host.rstrip("/")
+    reranker_h = settings.inference.vllm_reranker_host.rstrip("/")
+
+    _gw = settings.ports.gateway
+    _mem = settings.ports.memory
+    _mind = settings.ports.mind
 
     # Check all services and inference endpoints in parallel
     checks = [
-        _check("gateway", "http://localhost:8700/health"),
-        _check("memory", "http://localhost:8720/health"),
-        _check("mind", "http://localhost:8710/health"),
-        _check("litellm", f"{litellm_h}/health"),
+        _check("gateway", f"http://localhost:{_gw}/health"),
+        _check("memory", f"http://localhost:{_mem}/health"),
+        _check("mind", f"http://localhost:{_mind}/health"),
+        _check("litellm", f"{litellm_h}/health", {"Authorization": f"Bearer {settings.inference.litellm_key}"}),
         _check("vllm_reasoning", f"{reasoning_h}/v1/models"),
         _check("vllm_coding", f"{coding_h}/v1/models"),
+        _check("vllm_creative", f"{creative_h}/v1/models"),
         _check("vllm_fast", f"{fast_h}/v1/models"),
         _check("vllm_embedding", f"{embedding_h}/v1/models"),
+        _check("vllm_reranker", f"{reranker_h}/v1/models"),
     ]
     await asyncio.gather(*checks, return_exceptions=True)
 
@@ -545,7 +554,7 @@ async def cluster_status() -> dict:
     # Memory consolidation status
     memory_consolidation = "n/a"
     try:
-        resp = await http.get("http://localhost:8720/v1/memory/stats", timeout=5.0)
+        resp = await http.get(f"http://localhost:{_mem}/v1/memory/stats", timeout=5.0)
         if resp.status_code == 200:
             memory_consolidation = resp.json()
     except Exception:
@@ -555,7 +564,7 @@ async def cluster_status() -> dict:
     total = len(results)
 
     return {
-        "timestamp": __import__("datetime").datetime.now(__import__("datetime").timezone.utc).isoformat(),
+        "timestamp": datetime.now(timezone.utc).isoformat(),
         "summary": f"{up_count}/{total} services healthy",
         "services": results,
         "db": db_stats,
@@ -583,14 +592,12 @@ async def daily_brief() -> dict:
 async def trigger_consolidation() -> dict:
     """Trigger memory consolidation pipeline."""
     try:
-        import httpx
-        settings = get_settings()
-        async with httpx.AsyncClient(timeout=60.0) as client:
-            resp = await client.post(
-                f"http://localhost:{settings.ports.memory}/v1/memory/consolidate"
-            )
-            if resp.status_code == 200:
-                return resp.json()
-            return {"status": "error", "detail": resp.text}
+        resp = await app.state.http_client.post(
+            f"http://localhost:{settings.ports.memory}/v1/memory/consolidate",
+            timeout=60.0,
+        )
+        if resp.status_code == 200:
+            return resp.json()
+        return {"status": "error", "detail": resp.text}
     except Exception as e:
         return {"status": "error", "detail": str(e)}

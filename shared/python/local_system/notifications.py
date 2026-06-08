@@ -202,14 +202,16 @@ class NtfyChannel(NotificationChannel):
 
     async def send_text(self, title: str, body: str) -> bool:
         try:
+            # Use JSON publish format to support UTF-8 (emojis in titles)
             resp = await self._client.post(
-                f"{self._server_url}/{self._topic}",
-                content=body,
-                headers={
-                    "Title": title,
-                    "Priority": "default",
-                    "Tags": "art,robot",
-                    "Click": f"{self._gateway_url}/gallery",
+                self._server_url,
+                json={
+                    "topic": self._topic,
+                    "title": title,
+                    "message": body,
+                    "tags": ["art", "robot"],
+                    "click": f"{self._gateway_url}/gallery",
+                    "priority": 3,
                 },
             )
             return resp.status_code == 200
@@ -227,12 +229,14 @@ class NtfyChannel(NotificationChannel):
                 return False
 
             # ntfy supports image attachments via PUT with file
+            # Headers must be ASCII-safe, so strip non-ASCII from title
+            safe_title = (caption or path.stem).encode("ascii", errors="ignore").decode("ascii") or path.stem
             with open(path, "rb") as f:
                 resp = await self._client.put(
                     f"{self._server_url}/{self._topic}",
                     content=f.read(),
                     headers={
-                        "Title": caption or path.stem,
+                        "Title": safe_title,
                         "Filename": path.name,
                         "Priority": "default",
                         "Tags": "framed_picture",

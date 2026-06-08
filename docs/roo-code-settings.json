@@ -30,7 +30,7 @@
     "code": {
       "apiProvider": "openai",
       "openAiBaseUrl": "http://192.168.1.203:4000/v1",
-      "openAiApiKey": "sk-athanor-litellm-2026",
+      "openAiApiKey": "sk-athanor-_rmK0ymrhtnh_lFTI8I-3QEsB8buCV5d",
       "openAiModelId": "coder",
       "_comment": "Code mode: Qwen3-Coder-30B via LiteLLM — FREE. All code generation, editing, and implementation goes here."
     },
@@ -42,7 +42,7 @@
     "debug": {
       "apiProvider": "openai",
       "openAiBaseUrl": "http://192.168.1.203:4000/v1",
-      "openAiApiKey": "sk-athanor-litellm-2026",
+      "openAiApiKey": "sk-athanor-_rmK0ymrhtnh_lFTI8I-3QEsB8buCV5d",
       "openAiModelId": "reasoning",
       "_comment": "Debug mode: Qwen3.5-27B reasoning model — FREE. Deep analysis of bugs and tracing."
     },
@@ -63,5 +63,5 @@
   "roo-cline.maxContextTokens": 100000,
   "roo-cline.maxOutputTokens": 8192,
 
-  "roo-cline.customInstructions": "You are part of the Athanor coding system. When generating code, use local Qwen3-Coder via LiteLLM (code mode) for all implementation. Reserve Claude (architect mode) for design decisions only. Always create git worktrees for isolated changes. The LiteLLM proxy is at http://192.168.1.203:4000/v1 with key sk-athanor-litellm-2026. Prefer local model execution to save subscription tokens."
+  "roo-cline.customInstructions": "You are part of the Athanor coding system. When generating code, use local Qwen3-Coder via LiteLLM (code mode) for all implementation. Reserve Claude (architect mode) for design decisions only. Always create git worktrees for isolated changes. The LiteLLM proxy is at http://192.168.1.203:4000/v1 with key sk-athanor-_rmK0ymrhtnh_lFTI8I-3QEsB8buCV5d. Prefer local model execution to save subscription tokens."
 }

@@ -1,0 +1,12 @@
+/home/shaun/reconciliation-capture-20260607/localsystem-devdirty-uncommitted.patch:90: trailing whitespace.
+# =============================================================================
+/home/shaun/reconciliation-capture-20260607/localsystem-devdirty-uncommitted.patch:91: trailing whitespace.
+# Local-System v4 — Sovereign AI Platform
+/home/shaun/reconciliation-capture-20260607/localsystem-devdirty-uncommitted.patch:92: trailing whitespace.
+# Environment Configuration
+/home/shaun/reconciliation-capture-20260607/localsystem-devdirty-uncommitted.patch:93: trailing whitespace.
+# Copy to .env and fill in values: cp .env.example .env
+/home/shaun/reconciliation-capture-20260607/localsystem-devdirty-uncommitted.patch:94: trailing whitespace.
+# =============================================================================
+warning: squelched 9111 whitespace errors
+warning: 9116 lines add whitespace errors.

@@ -1,0 +1,108 @@
+# Prometheus Alert Rules — Local-System Cluster
+groups:
+  - name: service_health
+    rules:
+      - alert: ServiceDown
+        expr: up == 0
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: "{{ $labels.job }} is DOWN on {{ $labels.node }}"
+          description: "Target {{ $labels.instance }} has been unreachable for 2 minutes."
+
+      - alert: HighRequestLatency
+        expr: histogram_quantile(0.95, sum(rate(http_request_duration_seconds_bucket[5m])) by (le, job)) > 2
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High P95 latency on {{ $labels.job }}"
+          description: "P95 request latency above 2s for 5 minutes."
+
+      - alert: HighErrorRate
+        expr: sum(rate(http_requests_total{status=~"5.."}[5m])) by (job) / sum(rate(http_requests_total[5m])) by (job) > 0.05
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High 5xx error rate on {{ $labels.job }}"
+          description: "More than 5% of requests returning 5xx for 5 minutes."
+
+  - name: infrastructure
+    rules:
+      - alert: DiskSpaceWarning
+        expr: (node_filesystem_avail_bytes{mountpoint="/"} / node_filesystem_size_bytes{mountpoint="/"}) * 100 < 15
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Low disk space on {{ $labels.node }} ({{ $labels.mountpoint }})"
+          description: "Less than 15% disk space remaining."
+
+      - alert: DiskSpaceCritical
+        expr: (node_filesystem_avail_bytes{mountpoint="/"} / node_filesystem_size_bytes{mountpoint="/"}) * 100 < 5
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Critical disk space on {{ $labels.node }}"
+          description: "Less than 5% disk space remaining."
+
+      - alert: HighMemoryUsage
+        expr: (1 - (node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes)) * 100 > 90
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High memory usage on {{ $labels.node }}"
+          description: "Memory usage above 90% for 5 minutes."
+
+      - alert: HighCPUUsage
+        expr: 100 - (avg by(node) (rate(node_cpu_seconds_total{mode="idle"}[5m])) * 100) > 90
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High CPU usage on {{ $labels.node }}"
+          description: "CPU usage above 90% for 10 minutes."
+
+  - name: gpu
+    rules:
+      - alert: GPUMemoryHigh
+        expr: DCGM_FI_DEV_FB_USED / (DCGM_FI_DEV_FB_USED + DCGM_FI_DEV_FB_FREE) * 100 > 95
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "GPU {{ $labels.gpu }} memory above 95% on {{ $labels.node }}"
+          description: "GPU VRAM nearly full — may cause OOM on next request."
+
+      - alert: GPUTemperatureHigh
+        expr: DCGM_FI_DEV_GPU_TEMP > 85
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "GPU {{ $labels.gpu }} temperature {{ $value }}C on {{ $labels.node }}"
+          description: "GPU temperature above 85C — may throttle."
+
+  - name: inference
+    rules:
+      - alert: vLLMDown
+        expr: up{job=~"vllm-.*"} == 0
+        for: 3m
+        labels:
+          severity: critical
+        annotations:
+          summary: "vLLM {{ $labels.model }} is DOWN on {{ $labels.node }}"
+          description: "vLLM endpoint unreachable for 3 minutes."
+
+      - alert: LiteLLMDown
+        expr: up{job="litellm"} == 0
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: "LiteLLM proxy is DOWN"
+          description: "LiteLLM inference gateway unreachable — all model routing affected."

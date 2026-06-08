@@ -34,7 +34,7 @@ from typing import Optional
 
 NTFY_URL = "http://192.168.1.203:8880/athanor"
 LITELLM_URL = "http://192.168.1.203:4000/v1"
-LITELLM_KEY = "sk-athanor-litellm-2026"
+LITELLM_KEY = "sk-athanor-_rmK0ymrhtnh_lFTI8I-3QEsB8buCV5d"
 
 # Classification heuristics
 SIMPLE_PATTERNS = [

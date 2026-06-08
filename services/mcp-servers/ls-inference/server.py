@@ -8,10 +8,10 @@ for cloud API models when available.
 Available model aliases:
   "reasoning"  -> Qwen3-32B-AWQ on FOUNDRY TP=2 (GPUs 0,1) :8000
   "coding"     -> GLM-4.7-Flash-GPTQ on FOUNDRY 4090 (GPU 2) :8002
-  "fast"       -> Qwen3-14B FP8 on WORKSHOP (5090) :8000
+  "creative"   -> Qwen3-8B-abliterated on FOUNDRY (GPU 3) :8004
+  "fast"       -> Qwen3-14B FP8 on WORKSHOP :8000
   "embedding"  -> Qwen3-Embedding-0.6B on DEV :8001
   "reranker"   -> Qwen3-Reranker-0.6B on DEV :8003
-  "local"      -> Ollama on DEV :11434
 
 Framework: FastMCP 2.0
 Transport: stdio (over SSH from DESK/DEV)
@@ -50,11 +50,17 @@ MODEL_ROUTES: dict[str, dict[str, Any]] = {
         "type": "vllm",
         "description": "GLM-4.7-Flash-GPTQ on FOUNDRY 4090 (coding tasks)",
     },
+    "creative": {
+        "base_url": f"http://{FOUNDRY_HOST}:8004/v1",
+        "model_id": "huihui-ai/Qwen3-8B-abliterated-v2",
+        "type": "vllm",
+        "description": "Qwen3-8B-abliterated on FOUNDRY (uncensored creative)",
+    },
     "fast": {
         "base_url": f"http://{WORKSHOP_HOST}:8000/v1",
         "model_id": "fast",
         "type": "vllm",
-        "description": "Qwen3-14B FP8 on WORKSHOP 5090 (quick tasks)",
+        "description": "Qwen3-14B FP8 on WORKSHOP (quick tasks)",
     },
     "embedding": {
         "base_url": f"http://{DEV_HOST}:8001/v1",
@@ -67,12 +73,6 @@ MODEL_ROUTES: dict[str, dict[str, Any]] = {
         "model_id": "Qwen3-Reranker-0.6B",
         "type": "vllm",
         "description": "Qwen3-Reranker-0.6B on DEV (search reranking)",
-    },
-    "local": {
-        "base_url": f"http://{DEV_HOST}:11434/v1",
-        "model_id": "dolphin-mistral:7b",
-        "type": "ollama",
-        "description": "Ollama fallback on DEV (lightweight)",
     },
     # Cloud models (routed through LiteLLM when available)
     "claude": {
@@ -104,6 +104,7 @@ MODEL_ROUTES: dict[str, dict[str, Any]] = {
 # --- HTTP client pool ---
 
 _clients: dict[str, httpx.AsyncClient] = {}
+_health_client: httpx.AsyncClient | None = None
 
 
 async def get_client(base_url: str, use_litellm_key: bool = False) -> httpx.AsyncClient:
@@ -118,6 +119,14 @@ async def get_client(base_url: str, use_litellm_key: bool = False) -> httpx.Asyn
             headers=headers,
         )
     return _clients[base_url]
+
+
+async def get_health_client() -> httpx.AsyncClient:
+    """Get or create the shared health-check client (short timeout)."""
+    global _health_client
+    if _health_client is None or _health_client.is_closed:
+        _health_client = httpx.AsyncClient(timeout=httpx.Timeout(5.0))
+    return _health_client
 
 
 def resolve_route(model: str) -> dict[str, Any]:
@@ -139,8 +148,8 @@ mcp = FastMCP(
     "ls-inference",
     instructions=(
         "Access local and cloud AI models. Route completions, embeddings, "
-        "and reranking directly to vLLM on FOUNDRY/WORKSHOP. Use aliases: "
-        "reasoning, fast, coding, embedding, reranker, claude, gpt, deepseek, gemini."
+        "and reranking directly to vLLM on FOUNDRY/WORKSHOP/DEV. Use aliases: "
+        "reasoning, coding, creative, fast, embedding, reranker, claude, gpt, deepseek, gemini."
     ),
 )
 
@@ -215,7 +224,7 @@ async def embed(
 ) -> dict:
     """Generate embeddings for text.
 
-    Uses Qwen3-Embedding-0.6B on FOUNDRY by default (free, local).
+    Uses Qwen3-Embedding-0.6B on DEV by default (free, local).
     Returns 1024-dimensional vectors for semantic search.
 
     Args:
@@ -260,7 +269,7 @@ async def rerank(
 ) -> list[dict]:
     """Rerank documents by relevance to a query.
 
-    Uses Qwen3-Reranker-0.6B cross-encoder on FOUNDRY (free, local).
+    Uses Qwen3-Reranker-0.6B cross-encoder on DEV (free, local).
     Returns documents sorted by relevance score.
 
     Args:
@@ -302,19 +311,16 @@ async def list_models() -> list[dict]:
     Checks each vLLM endpoint directly for health (no LiteLLM dependency).
     """
     results = []
+    client = await get_health_client()
 
     for alias, route in MODEL_ROUTES.items():
         health = "unknown"
 
-        if route["type"] in ("vllm", "ollama"):
+        if route["type"] == "vllm":
             try:
-                async with httpx.AsyncClient(timeout=3.0) as c:
-                    if route["type"] == "vllm":
-                        health_url = route["base_url"].replace("/v1", "/health")
-                        resp = await c.get(health_url)
-                    else:
-                        resp = await c.get(f"{route['base_url']}/models")
-                    health = "healthy" if resp.status_code == 200 else f"unhealthy ({resp.status_code})"
+                health_url = route["base_url"].replace("/v1", "/health")
+                resp = await client.get(health_url)
+                health = "healthy" if resp.status_code == 200 else f"unhealthy ({resp.status_code})"
             except Exception:
                 health = "unreachable"
         elif route["type"] == "litellm":
@@ -336,18 +342,19 @@ async def gpu_status() -> list[dict]:
     """Check health of all inference endpoints across the cluster."""
     checks = [
         ("FOUNDRY", FOUNDRY_HOST, 8000, "reasoning", "Qwen3-32B-AWQ TP=2"),
-        ("FOUNDRY", FOUNDRY_HOST, 8001, "embedding", "Qwen3-Embedding-0.6B"),
-        ("FOUNDRY", FOUNDRY_HOST, 8002, "coding", "Qwen3-32B-AWQ (4090)"),
-        ("FOUNDRY", FOUNDRY_HOST, 8003, "reranker", "Qwen3-Reranker-0.6B"),
-        ("WORKSHOP", WORKSHOP_HOST, 8000, "fast", "Qwen3-14B FP8 (5090)"),
+        ("FOUNDRY", FOUNDRY_HOST, 8002, "coding", "GLM-4.7-Flash-GPTQ (4090)"),
+        ("FOUNDRY", FOUNDRY_HOST, 8004, "creative", "Qwen3-8B-abliterated"),
+        ("WORKSHOP", WORKSHOP_HOST, 8000, "fast", "Qwen3-14B FP8"),
+        ("DEV", DEV_HOST, 8001, "embedding", "Qwen3-Embedding-0.6B"),
+        ("DEV", DEV_HOST, 8003, "reranker", "Qwen3-Reranker-0.6B"),
     ]
 
     results = []
+    client = await get_health_client()
     for node, host, port, alias, desc in checks:
         try:
-            async with httpx.AsyncClient(timeout=3.0) as c:
-                resp = await c.get(f"http://{host}:{port}/health")
-                status = "healthy" if resp.status_code == 200 else f"unhealthy ({resp.status_code})"
+            resp = await client.get(f"http://{host}:{port}/health")
+            status = "healthy" if resp.status_code == 200 else f"unhealthy ({resp.status_code})"
         except Exception:
             status = "unreachable"
 

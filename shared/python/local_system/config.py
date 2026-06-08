@@ -57,18 +57,18 @@ class ServicePorts(BaseSettings):
 
     gateway: int = Field(default=8700, alias="GATEWAY_PORT")
     memory: int = Field(default=8720, alias="MEMORY_PORT")
-    orchestrator: int = Field(default=8703, alias="ORCHESTRATOR_PORT")
     mind: int = Field(default=8710, alias="MIND_PORT")
-    agent_server: int = Field(default=9000, alias="AGENT_SERVER_PORT")
     perception: int = Field(default=8730, alias="PERCEPTION_PORT")
     ui: int = Field(default=3001, alias="UI_PORT")
 
     # External services
+    agent_server: int = Field(default=9000)
     litellm: int = Field(default=4000)
     vllm_reasoning: int = Field(default=8000)
     vllm_fast: int = Field(default=8000)
     vllm_embedding: int = Field(default=8001)
     vllm_coding: int = Field(default=8002)
+    vllm_creative: int = Field(default=8004)
     vllm_reranker: int = Field(default=8003)
 
 
@@ -77,13 +77,14 @@ class InferenceConfig(BaseSettings):
 
     # LiteLLM is the single entry point for all inference
     litellm_host: str = Field(default="http://192.168.1.203:4000", alias="LITELLM_HOST")
-    litellm_key: str = Field(default="not-set", alias="LITELLM_KEY")
+    litellm_key: str = Field(default="not-set", alias="LITELLM_MASTER_KEY")
 
     # vLLM instances (ports set after GPU discovery)
     vllm_reasoning_host: str = Field(default="http://192.168.1.244:8000", alias="VLLM_REASONING_HOST")
-    vllm_fast_host: str = Field(default="http://192.168.1.225:8000", alias="VLLM_FAST_HOST")
+    vllm_fast_host: str = Field(default="http://192.168.1.244:8004", alias="VLLM_FAST_HOST")
     vllm_embedding_host: str = Field(default="http://192.168.1.189:8001", alias="VLLM_EMBEDDING_HOST")
     vllm_coding_host: str = Field(default="http://192.168.1.244:8002", alias="VLLM_CODING_HOST")
+    vllm_creative_host: str = Field(default="http://192.168.1.244:8004", alias="VLLM_CREATIVE_HOST")
     vllm_reranker_host: str = Field(default="http://192.168.1.189:8003", alias="VLLM_RERANKER_HOST")
 
 

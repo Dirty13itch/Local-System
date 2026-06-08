@@ -9,6 +9,9 @@ import {
   type DropDetail,
   type TrainingJob,
   type PromptTemplate,
+  type GalleryResponse,
+  type GallerySubject,
+  type GalleryImage as GalleryImageType,
 } from "@/lib/api";
 import { ImageUpload } from "@/components/ImageUpload";
 import { ImageGallery } from "@/components/ImageGallery";
@@ -18,7 +21,7 @@ import { DNARadar } from "@/components/DNARadar";
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
-type Tab = "create" | "edit" | "face" | "queens" | "train" | "drops" | "history";
+type Tab = "create" | "edit" | "face" | "queens" | "train" | "drops" | "gallery";
 
 interface GeneratedImage {
   src: string;
@@ -49,7 +52,7 @@ const TABS: { id: Tab; label: string; icon: string }[] = [
   { id: "face", label: "Face Gen", icon: "◉" },
   { id: "queens", label: "Queens", icon: "♛" },
   { id: "train", label: "Train", icon: "⚙" },
-  { id: "history", label: "History", icon: "⏱" },
+  { id: "gallery", label: "Gallery", icon: "🖼" },
 ];
 
 const DEFAULT_NEGATIVE = "blurry, low quality, deformed, ugly, bad anatomy, disfigured, poorly drawn, extra limbs";
@@ -96,7 +99,7 @@ export default function GeneratePage() {
         {activeTab === "face" && <FaceGenTab />}
         {activeTab === "queens" && <QueensTab />}
         {activeTab === "train" && <TrainTab />}
-        {activeTab === "history" && <HistoryTab />}
+        {activeTab === "gallery" && <GalleryTab />}
       </div>
     </div>
   );
@@ -1458,105 +1461,420 @@ function EditTab() {
   );
 }
 
-// ─── Tab: History ────────────────────────────────────────────────────────────
+// ─── Tab: Gallery (Persistent Content Browser) ──────────────────────────────
 
-interface HistoryImage {
-  src: string;
-  prompt: string;
-  promptId: string;
-  timestamp?: string;
+interface FlatGalleryItem {
+  subject: string;
+  filename: string;
+  url: string;
+  created: number;
+  pipeline: string;
+  identity_method: string;
+  prompt?: string;
+  rating?: string;
+  refs: { filename: string; url: string }[];
 }
 
-function HistoryTab() {
-  const [images, setImages] = useState<HistoryImage[]>([]);
+function GalleryTab() {
+  const [data, setData] = useState<GalleryResponse | null>(null);
   const [loading, setLoading] = useState(true);
+  const [filter, setFilter] = useState("all");
+  const [ratingFilter, setRatingFilter] = useState<"all" | "good" | "bad" | "unrated">("all");
+  const [lightboxIdx, setLightboxIdx] = useState<number | null>(null);
+  const [ratingInFlight, setRatingInFlight] = useState<string | null>(null);
 
-  const loadHistory = useCallback(async () => {
+  const loadGallery = useCallback(async () => {
     try {
-      const history = await api.generationHistory() as Record<string, Record<string, unknown>>;
-      const imgs: HistoryImage[] = [];
-      for (const [promptId, entry] of Object.entries(history)) {
-        if (!entry.outputs) continue;
-        const outputs = entry.outputs as Record<string, { images?: Array<{ filename: string; type: string }> }>;
-        // Extract prompt from the workflow if available
-        let promptText = "";
-        try {
-          const p = entry.prompt as Array<unknown>;
-          if (Array.isArray(p) && p.length >= 3) {
-            const workflow = p[2] as Record<string, { inputs?: { text?: string } }>;
-            for (const node of Object.values(workflow)) {
-              if (node.inputs?.text && node.inputs.text.length > 20) {
-                promptText = node.inputs.text;
-                break;
-              }
-            }
-          }
-        } catch { /* skip */ }
-
-        for (const nodeId of Object.keys(outputs)) {
-          const nodeOutput = outputs[nodeId];
-          if (nodeOutput.images) {
-            for (const img of nodeOutput.images) {
-              imgs.push({
-                src: api.getImageUrl(img.filename, img.type),
-                prompt: promptText,
-                promptId,
-              });
-            }
-          }
-        }
-      }
-      setImages(imgs.reverse());
-    } catch {
-      // Offline
-    }
+      const resp = await api.fetchGallery();
+      setData(resp);
+    } catch { /* offline */ }
   }, []);
 
   useEffect(() => {
-    loadHistory().then(() => setLoading(false));
-  }, [loadHistory]);
+    loadGallery().then(() => setLoading(false));
+  }, [loadGallery]);
+
+  // Flatten all subjects' images into a single sorted list
+  const flatImages = useCallback((): FlatGalleryItem[] => {
+    if (!data) return [];
+    const items: FlatGalleryItem[] = [];
+    for (const subject of data.subjects) {
+      for (let i = 0; i < subject.images.length; i++) {
+        const img = subject.images[i];
+        const ratingKey = `${subject.name}/${img.filename}`;
+        items.push({
+          subject: subject.name,
+          filename: img.filename,
+          url: img.url,
+          created: img.created,
+          pipeline: img.pipeline || subject.pipeline,
+          identity_method: img.identity_method || subject.identity_method,
+          prompt: subject.prompts[i] || subject.prompts[0],
+          rating: data.ratings[ratingKey],
+          refs: subject.refs,
+        });
+      }
+    }
+    // Sort newest first
+    items.sort((a, b) => b.created - a.created);
+    return items;
+  }, [data]);
+
+  const allItems = flatImages();
+
+  // Apply filters
+  const filteredItems = allItems.filter((item) => {
+    if (filter !== "all" && item.subject !== filter) return false;
+    if (ratingFilter === "good" && item.rating !== "good") return false;
+    if (ratingFilter === "bad" && item.rating !== "bad") return false;
+    if (ratingFilter === "unrated" && item.rating) return false;
+    return true;
+  });
+
+  const subjects = data ? data.subjects.map((s) => s.name).sort() : [];
+  const lightboxItem = lightboxIdx !== null ? filteredItems[lightboxIdx] : null;
+
+  const handleRate = async (item: FlatGalleryItem, rating: "good" | "bad") => {
+    const key = `${item.subject}/${item.filename}`;
+    setRatingInFlight(key);
+    try {
+      await api.rateImage(item.subject, item.filename, rating, item.prompt);
+      // Optimistic update
+      setData((prev) => {
+        if (!prev) return prev;
+        const newRatings = { ...prev.ratings };
+        // Toggle off if already set to same rating
+        if (newRatings[key] === rating) {
+          delete newRatings[key];
+        } else {
+          newRatings[key] = rating;
+        }
+        return { ...prev, ratings: newRatings };
+      });
+    } catch { /* ignore */ }
+    setRatingInFlight(null);
+  };
+
+  const handleKeyDown = useCallback(
+    (e: KeyboardEvent) => {
+      if (lightboxIdx === null) return;
+      if (e.key === "Escape") setLightboxIdx(null);
+      if (e.key === "ArrowRight" && lightboxIdx < filteredItems.length - 1) setLightboxIdx(lightboxIdx + 1);
+      if (e.key === "ArrowLeft" && lightboxIdx > 0) setLightboxIdx(lightboxIdx - 1);
+    },
+    [lightboxIdx, filteredItems.length],
+  );
+
+  useEffect(() => {
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [handleKeyDown]);
+
+  const formatTime = (ts: number) => {
+    if (!ts) return "";
+    const d = new Date(ts * 1000);
+    const now = new Date();
+    const diffMs = now.getTime() - d.getTime();
+    const diffH = Math.floor(diffMs / 3600000);
+    if (diffH < 1) return `${Math.floor(diffMs / 60000)}m ago`;
+    if (diffH < 24) return `${diffH}h ago`;
+    const diffD = Math.floor(diffH / 24);
+    if (diffD < 7) return `${diffD}d ago`;
+    return d.toLocaleDateString(undefined, { month: "short", day: "numeric" });
+  };
+
+  const apiBase = process.env.NEXT_PUBLIC_API_URL || "http://192.168.1.189:8700";
 
   if (loading) {
-    return <div className="p-6 text-[var(--text-secondary)]">Loading history...</div>;
+    return <div className="p-6 text-[var(--text-secondary)]">Loading gallery...</div>;
   }
 
   return (
     <div className="p-6">
-      <div className="flex items-center justify-between mb-5">
+      {/* Header */}
+      <div className="flex items-center justify-between mb-4">
         <div>
-          <h2 className="text-lg font-semibold">Generation History</h2>
+          <h2 className="text-lg font-semibold">Content Gallery</h2>
           <p className="text-xs text-[var(--text-secondary)] mt-0.5">
-            {images.length} images from ComfyUI history
+            {data?.total_images || 0} images across {data?.total_subjects || 0} subjects
+            {data?.feedback_summary && data.feedback_summary.total_rated > 0 && (
+              <span className="ml-2">
+                · {data.feedback_summary.total_good} liked · {data.feedback_summary.total_bad} disliked
+              </span>
+            )}
           </p>
         </div>
         <button
-          onClick={() => { setLoading(true); loadHistory().then(() => setLoading(false)); }}
+          onClick={() => { setLoading(true); loadGallery().then(() => setLoading(false)); }}
           className="px-3 py-1.5 text-xs rounded-lg border border-[var(--border)] bg-[var(--bg-tertiary)] hover:bg-[var(--bg-secondary)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] transition-colors"
         >
           Refresh
         </button>
       </div>
 
-      {images.length === 0 ? (
+      {/* Filters */}
+      <div className="flex items-center gap-3 mb-5 flex-wrap">
+        <select
+          value={filter}
+          onChange={(e) => setFilter(e.target.value)}
+          className="rounded-lg border border-[var(--border)] bg-[var(--bg-tertiary)] px-3 py-1.5 text-xs focus:outline-none focus:border-[var(--accent)]"
+        >
+          <option value="all">All Subjects ({allItems.length})</option>
+          {subjects.map((s) => (
+            <option key={s} value={s}>
+              {s} ({allItems.filter((i) => i.subject === s).length})
+            </option>
+          ))}
+        </select>
+
+        <div className="flex gap-1">
+          {(["all", "good", "bad", "unrated"] as const).map((r) => (
+            <button
+              key={r}
+              onClick={() => setRatingFilter(r)}
+              className={`text-[10px] px-2.5 py-1 rounded-full border transition-colors capitalize ${
+                ratingFilter === r
+                  ? "border-[var(--accent)] text-[var(--accent)] bg-[var(--accent)]/10"
+                  : "border-[var(--border)] text-[var(--text-secondary)] hover:border-[var(--text-secondary)]"
+              }`}
+            >
+              {r === "good" ? "Liked" : r === "bad" ? "Disliked" : r === "unrated" ? "Unrated" : "All"}
+            </button>
+          ))}
+        </div>
+
+        <span className="text-[10px] text-[var(--text-secondary)] ml-auto">
+          {filteredItems.length} images
+        </span>
+      </div>
+
+      {/* Image Grid */}
+      {filteredItems.length === 0 ? (
         <div className="text-center py-16 text-[var(--text-secondary)]">
           <div className="text-4xl mb-3">🖼</div>
-          <p className="text-sm">No generation history found</p>
-          <p className="text-xs mt-1">Generate some images in the Create tab to see them here</p>
+          <p className="text-sm">
+            {allItems.length === 0 ? "No generated content yet" : "No images match filters"}
+          </p>
+          <p className="text-xs mt-1">
+            {allItems.length === 0
+              ? "Drop photos into gen-drops or use the scheduler to start generating"
+              : "Try adjusting the subject or rating filter"
+            }
+          </p>
         </div>
       ) : (
         <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-3">
-          {images.map((img, i) => (
-            <div key={i} className="group relative">
-              <div className="aspect-square rounded-lg overflow-hidden border border-[var(--border)] bg-[var(--bg-tertiary)] hover:border-[var(--accent)] transition-colors">
-                <img src={img.src} alt={`Generated ${i + 1}`} className="w-full h-full object-cover" loading="lazy" />
+          {filteredItems.map((item, i) => {
+            const ratingKey = `${item.subject}/${item.filename}`;
+            const currentRating = data?.ratings[ratingKey];
+            return (
+              <div key={ratingKey} className="group relative">
+                {/* Image */}
+                <button
+                  onClick={() => setLightboxIdx(i)}
+                  className="w-full aspect-[3/4] rounded-lg overflow-hidden border border-[var(--border)] bg-[var(--bg-tertiary)] hover:border-[var(--accent)] transition-colors cursor-pointer"
+                >
+                  <img
+                    src={`${apiBase}${item.url}`}
+                    alt={`${item.subject} - ${item.filename}`}
+                    className="w-full h-full object-cover"
+                    loading="lazy"
+                  />
+                </button>
+
+                {/* Hover overlay */}
+                <div className="absolute inset-x-0 bottom-0 rounded-b-lg overflow-hidden opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none">
+                  <div className="p-2 bg-gradient-to-t from-black/90 via-black/60 to-transparent pt-8">
+                    <div className="flex items-center justify-between pointer-events-auto">
+                      <span className="text-[10px] text-white/90 font-medium truncate">
+                        {item.subject}
+                      </span>
+                      <span className="text-[9px] text-white/60">{formatTime(item.created)}</span>
+                    </div>
+                    {item.prompt && (
+                      <p className="text-[9px] text-white/60 truncate mt-0.5">{item.prompt.slice(0, 80)}</p>
+                    )}
+                    {/* Rating buttons */}
+                    <div className="flex gap-1.5 mt-1.5 pointer-events-auto">
+                      <button
+                        onClick={(e) => { e.stopPropagation(); handleRate(item, "good"); }}
+                        disabled={ratingInFlight === ratingKey}
+                        className={`text-xs px-2 py-0.5 rounded transition-colors ${
+                          currentRating === "good"
+                            ? "bg-green-500/30 text-green-400"
+                            : "bg-white/10 text-white/70 hover:bg-green-500/20 hover:text-green-400"
+                        }`}
+                      >
+                        {currentRating === "good" ? "❤️" : "👍"}
+                      </button>
+                      <button
+                        onClick={(e) => { e.stopPropagation(); handleRate(item, "bad"); }}
+                        disabled={ratingInFlight === ratingKey}
+                        className={`text-xs px-2 py-0.5 rounded transition-colors ${
+                          currentRating === "bad"
+                            ? "bg-red-500/30 text-red-400"
+                            : "bg-white/10 text-white/70 hover:bg-red-500/20 hover:text-red-400"
+                        }`}
+                      >
+                        👎
+                      </button>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Persistent rating badge */}
+                {currentRating && (
+                  <div className="absolute top-1.5 right-1.5">
+                    <span className={`text-xs px-1.5 py-0.5 rounded-full backdrop-blur-sm ${
+                      currentRating === "good" ? "bg-green-500/30 text-green-400" : "bg-red-500/30 text-red-400"
+                    }`}>
+                      {currentRating === "good" ? "❤️" : "👎"}
+                    </span>
+                  </div>
+                )}
               </div>
-              {img.prompt && (
-                <div className="absolute inset-x-0 bottom-0 p-1.5 bg-gradient-to-t from-black/80 to-transparent rounded-b-lg opacity-0 group-hover:opacity-100 transition-opacity">
-                  <p className="text-[10px] text-white truncate">{img.prompt}</p>
+            );
+          })}
+        </div>
+      )}
+
+      {/* Lightbox */}
+      {lightboxItem && lightboxIdx !== null && (
+        <div
+          className="fixed inset-0 z-50 bg-black/90 flex items-center justify-center"
+          onClick={() => setLightboxIdx(null)}
+          onKeyDown={(e) => { if (e.key === "Escape") setLightboxIdx(null); }}
+          tabIndex={0}
+        >
+          <div
+            className="relative flex max-w-7xl w-full max-h-[90vh] mx-4 gap-6"
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* Close */}
+            <button
+              onClick={() => setLightboxIdx(null)}
+              className="absolute -top-10 right-0 text-white/60 hover:text-white text-xl z-10"
+            >
+              ✕
+            </button>
+
+            {/* Navigation arrows */}
+            {lightboxIdx > 0 && (
+              <button
+                onClick={() => setLightboxIdx(lightboxIdx - 1)}
+                className="absolute left-2 top-1/2 -translate-y-1/2 z-10 w-10 h-10 rounded-full bg-black/50 text-white/80 hover:bg-black/70 hover:text-white flex items-center justify-center text-lg"
+              >
+                ‹
+              </button>
+            )}
+            {lightboxIdx < filteredItems.length - 1 && (
+              <button
+                onClick={() => setLightboxIdx(lightboxIdx + 1)}
+                className="absolute right-80 top-1/2 -translate-y-1/2 z-10 w-10 h-10 rounded-full bg-black/50 text-white/80 hover:bg-black/70 hover:text-white flex items-center justify-center text-lg"
+              >
+                ›
+              </button>
+            )}
+
+            {/* Image */}
+            <div className="flex-1 flex items-center justify-center min-w-0">
+              <img
+                src={`${apiBase}${lightboxItem.url}`}
+                alt={lightboxItem.filename}
+                className="max-w-full max-h-[85vh] object-contain rounded-lg"
+              />
+            </div>
+
+            {/* Details panel */}
+            <div className="w-72 flex-shrink-0 bg-[var(--bg-secondary)] rounded-lg p-4 overflow-auto max-h-[85vh] space-y-4">
+              {/* Subject + index */}
+              <div>
+                <h3 className="font-semibold text-sm capitalize">{lightboxItem.subject}</h3>
+                <p className="text-[10px] text-[var(--text-secondary)]">
+                  {lightboxIdx + 1} of {filteredItems.length} · {formatTime(lightboxItem.created)}
+                </p>
+              </div>
+
+              {/* Rating */}
+              <div className="flex gap-2">
+                {(["good", "bad"] as const).map((r) => {
+                  const rk = `${lightboxItem.subject}/${lightboxItem.filename}`;
+                  const current = data?.ratings[rk];
+                  return (
+                    <button
+                      key={r}
+                      onClick={() => handleRate(lightboxItem, r)}
+                      className={`flex-1 py-2 rounded-lg text-sm border transition-colors ${
+                        current === r
+                          ? r === "good"
+                            ? "border-green-500/50 bg-green-500/10 text-green-400"
+                            : "border-red-500/50 bg-red-500/10 text-red-400"
+                          : "border-[var(--border)] text-[var(--text-secondary)] hover:border-[var(--text-secondary)]"
+                      }`}
+                    >
+                      {r === "good" ? "👍 Good" : "👎 Bad"}
+                    </button>
+                  );
+                })}
+              </div>
+
+              {/* Details */}
+              <div className="text-xs space-y-2">
+                <div>
+                  <span className="text-[var(--text-secondary)]">Pipeline:</span>{" "}
+                  <span className="text-[var(--accent)]">{lightboxItem.pipeline || "unknown"}</span>
+                </div>
+                <div>
+                  <span className="text-[var(--text-secondary)]">Identity:</span>{" "}
+                  {lightboxItem.identity_method || "unknown"}
+                </div>
+                <div>
+                  <span className="text-[var(--text-secondary)]">File:</span>{" "}
+                  <span className="text-[10px] font-mono">{lightboxItem.filename}</span>
+                </div>
+              </div>
+
+              {/* Prompt */}
+              {lightboxItem.prompt && (
+                <div>
+                  <p className="text-[10px] font-medium text-[var(--text-secondary)] uppercase tracking-wider mb-1">
+                    Prompt
+                  </p>
+                  <p className="text-[11px] leading-relaxed bg-[var(--bg-tertiary)] rounded-lg p-2.5 max-h-32 overflow-auto">
+                    {lightboxItem.prompt}
+                  </p>
                 </div>
               )}
+
+              {/* References */}
+              {lightboxItem.refs.length > 0 && (
+                <div>
+                  <p className="text-[10px] font-medium text-[var(--text-secondary)] uppercase tracking-wider mb-1.5">
+                    References ({lightboxItem.refs.length})
+                  </p>
+                  <div className="grid grid-cols-4 gap-1">
+                    {lightboxItem.refs.map((ref) => (
+                      <div
+                        key={ref.filename}
+                        className="aspect-square rounded overflow-hidden border border-[var(--border)]"
+                      >
+                        <img
+                          src={`${apiBase}${ref.url}`}
+                          alt={ref.filename}
+                          className="w-full h-full object-cover"
+                        />
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Keyboard hints */}
+              <div className="text-[10px] text-[var(--text-secondary)] pt-2 border-t border-[var(--border)]">
+                ← → navigate · Esc close
+              </div>
             </div>
-          ))}
+          </div>
         </div>
       )}
     </div>

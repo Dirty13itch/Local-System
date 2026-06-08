@@ -4,14 +4,15 @@ Each preset function takes user parameters and returns a ComfyUI API prompt dict
 (the JSON body sent to POST /prompt). Users never see nodes.
 
 Presets:
-    flux-uncensored: FLUX.1 Dev FP8 + flux-uncensored LoRA
-    realvis-xl:      RealVisXL V5.0 photorealistic SDXL
-    flux-faceid:     FLUX.1 Dev + PuLID identity preservation
-    sdxl-faceid:     RealVisXL + IPAdapter FaceID Plus V2
-    face-swap:       ReActor face swap on existing image
-    custom-lora:     FLUX.1 Dev + user-trained LoRA
-    queen-portrait:  832x1216 character portrait with face identity
-    queen-scene:     1344x768 cinematic scene with face identity
+    flux-uncensored:   FLUX.1 Dev FP8 + flux-uncensored LoRA
+    realvis-xl:        RealVisXL V5.0 photorealistic SDXL
+    flux-faceid:       FLUX.1 Dev + PuLID identity preservation
+    flux-infiniteyou:  FLUX.1 Dev + InfiniteYou (ByteDance) identity
+    sdxl-faceid:       RealVisXL + IPAdapter FaceID Plus V2
+    face-swap:         ReActor face swap on existing image
+    custom-lora:       FLUX.1 Dev + user-trained LoRA
+    queen-portrait:    832x1216 character portrait with face identity
+    queen-scene:       1344x768 cinematic scene with face identity
 """
 
 from __future__ import annotations
@@ -25,6 +26,43 @@ DEFAULT_NSFW_LORA_STRENGTH = 1.0
 
 # Face restoration defaults
 DEFAULT_FACE_RESTORE_MODEL = "GFPGANv1.4.pth"
+
+# ─── Realism Enhancement Defaults ─────────────────────────────────────────────
+
+# Comprehensive negative prompt for Flux pipelines — prevents common AI artifacts.
+# Even at cfg=1.0, these help steer conditioning away from failure modes when
+# identity models (PuLID, InfiniteYou, LoRA) modify the sampling space.
+FLUX_NEGATIVE_PROMPT = (
+    "blurry, low quality, deformed, ugly, bad anatomy, wrong anatomy, "
+    "extra limbs, missing limbs, floating limbs, disconnected limbs, "
+    "mutated hands, extra fingers, missing fingers, fused fingers, too many fingers, "
+    "extra arms, extra legs, malformed limbs, poorly drawn hands, poorly drawn feet, "
+    "poorly drawn face, mutation, disfigured, bad proportions, gross proportions, "
+    "long neck, cross-eyed, extra nipples, misshapen breasts, asymmetric body, "
+    "impossible pose, broken spine, contorted body, anatomically incorrect, "
+    "merged bodies, extra body parts, phantom limbs, transparent body parts, "
+    "plastic skin, waxy skin, poreless skin, airbrushed skin, smooth skin, "
+    "mannequin, doll-like, CGI, 3D render, artificial skin, over-smoothed, "
+    "filtered, beauty filter, cartoon, anime, illustration, painting, drawing, sketch"
+)
+
+# Comprehensive negative prompt for SDXL pipelines (higher CFG = more impactful)
+SDXL_NEGATIVE_PROMPT = (
+    "blurry, low quality, deformed, ugly, bad anatomy, wrong anatomy, "
+    "extra limbs, missing limbs, floating limbs, disconnected limbs, "
+    "mutated hands, extra fingers, missing fingers, fused fingers, too many fingers, "
+    "extra arms, extra legs, poorly drawn hands, poorly drawn feet, poorly drawn face, "
+    "mutation, disfigured, bad proportions, long neck, cross-eyed, "
+    "plastic skin, waxy skin, poreless skin, airbrushed, mannequin, doll-like, "
+    "CGI, 3D render, cartoon, anime, illustration, painting, drawing, sketch, "
+    "worst quality, low quality, normal quality, jpeg artifacts, watermark, text"
+)
+
+# Optional skin realism LoRA — stacked on top of uncensored LoRA for photorealistic
+# skin texture (pores, subsurface scattering, natural imperfections).
+# Set to None to disable. Download from CivitAI and place in ComfyUI loras folder.
+SKIN_REALISM_LORA = None  # e.g., "skin_realism_v2.safetensors" when available
+SKIN_REALISM_LORA_STRENGTH = 0.45  # Subtle — 0.3-0.6 range, higher = more texture
 
 
 def _seed(val: int = -1) -> int:
@@ -61,13 +99,258 @@ def _add_face_restore(
     workflow[save_node_id]["inputs"]["images"] = ["fr_restore", 0]
 
 
+def _add_skin_realism_lora(
+    workflow: dict,
+    prev_lora_node_id: str,
+    ksampler_node_id: str,
+    pos_cond_node_id: str,
+    neg_cond_node_id: str,
+    lora_name: str | None = SKIN_REALISM_LORA,
+    lora_strength: float = SKIN_REALISM_LORA_STRENGTH,
+) -> None:
+    """Chain a skin realism LoRA after the existing (uncensored) LoRA.
+
+    Adds photorealistic skin texture — pores, subsurface scattering, natural
+    imperfections. Only activates when SKIN_REALISM_LORA is set (not None).
+
+    Rewires KSampler model input and CLIP conditioning to flow through
+    the second LoRA node.
+    """
+    if not lora_name:
+        return  # Disabled — no skin LoRA configured
+
+    # Add second LoRA node chained from the first
+    workflow["lora_skin"] = {
+        "class_type": "LoraLoader",
+        "inputs": {
+            "model": [prev_lora_node_id, 0],   # model from previous LoRA
+            "clip": [prev_lora_node_id, 1],     # clip from previous LoRA
+            "lora_name": lora_name,
+            "strength_model": lora_strength,
+            "strength_clip": lora_strength,
+        },
+    }
+
+    # Rewire KSampler to use the stacked LoRA output
+    workflow[ksampler_node_id]["inputs"]["model"] = ["lora_skin", 0]
+
+    # Rewire conditioning to use the stacked CLIP output
+    workflow[pos_cond_node_id]["inputs"]["clip"] = ["lora_skin", 1]
+    workflow[neg_cond_node_id]["inputs"]["clip"] = ["lora_skin", 1]
+
+
+# Default FaceDetailer settings
+DEFAULT_FD_GUIDE_SIZE = 480
+DEFAULT_FD_MAX_SIZE = 1024
+DEFAULT_FD_DENOISE = 0.4  # Subtle refinement — preserves identity
+DEFAULT_FD_STEPS = 20
+DEFAULT_FD_CFG = 1.0  # Match FLUX cfg
+
+# Face detection model for Impact-Pack
+DEFAULT_FACE_DETECT_MODEL = "face_yolov8m.pt"
+DEFAULT_SAM_MODEL = "sam_vit_b_01ec64.pth"
+
+# Upscaler model
+DEFAULT_UPSCALER_MODEL = "4x-UltraSharp.pth"
+
+
+def _add_face_detailer(
+    workflow: dict,
+    image_node_id: str,
+    model_node_id: str,
+    clip_node_id: str,
+    vae_node_id: str,
+    pos_cond_node_id: str,
+    neg_cond_node_id: str,
+    save_node_id: str,
+    model_output_slot: int = 0,
+    clip_output_slot: int = 0,
+    denoise: float = DEFAULT_FD_DENOISE,
+    steps: int = DEFAULT_FD_STEPS,
+    cfg: float = DEFAULT_FD_CFG,
+    guide_size: int = DEFAULT_FD_GUIDE_SIZE,
+    seed: int = -1,
+) -> None:
+    """Add FaceDetailer post-processing (Impact-Pack) after generation.
+
+    Detects face regions via YOLOv8, creates precise masks with SAM,
+    then inpaints face regions at higher detail using the same model/prompt.
+    Much better than simple GFPGAN restore for preserving identity while
+    enhancing face quality.
+
+    The model/clip output slots allow flexibility — e.g. LoraLoader outputs
+    clip on slot 1, while DualCLIPLoader outputs on slot 0.
+
+    Requires on WORKSHOP: ComfyUI-Impact-Pack, face_yolov8m.pt, sam_vit_b.
+    """
+    s = _seed(seed)
+
+    # BBOX face detector (YOLOv8)
+    workflow["fd_detector"] = {
+        "class_type": "UltralyticsDetectorProvider",
+        "inputs": {"model_name": DEFAULT_FACE_DETECT_MODEL},
+    }
+
+    # SAM model for precise face masking
+    workflow["fd_sam"] = {
+        "class_type": "SAMLoader",
+        "inputs": {
+            "model_name": DEFAULT_SAM_MODEL,
+            "device_mode": "AUTO",
+        },
+    }
+
+    # FaceDetailer node — the core enhancement
+    workflow["fd_main"] = {
+        "class_type": "FaceDetailer",
+        "inputs": {
+            "image": [image_node_id, 0],
+            "model": [model_node_id, model_output_slot],
+            "clip": [clip_node_id, clip_output_slot],
+            "vae": [vae_node_id, 0],
+            "positive": [pos_cond_node_id, 0],
+            "negative": [neg_cond_node_id, 0],
+            "bbox_detector": ["fd_detector", 0],
+            "sam_model_opt": ["fd_sam", 0],
+            "segm_detector_opt": None,
+            "detailer_hook": None,
+            "guide_size": guide_size,
+            "guide_size_for": True,  # guide_size_for_bbox
+            "max_size": DEFAULT_FD_MAX_SIZE,
+            "seed": s,
+            "steps": steps,
+            "cfg": cfg,
+            "sampler_name": "euler",
+            "scheduler": "simple",
+            "denoise": denoise,
+            "feather": 10,
+            "noise_mask": True,
+            "force_inpaint": False,
+            "bbox_threshold": 0.5,
+            "bbox_dilation": 10,
+            "bbox_crop_factor": 3.0,
+            "sam_detection_hint": "center-1",
+            "sam_dilation": 10,
+            "sam_threshold": 0.93,
+            "sam_bbox_expansion": 0,
+            "sam_mask_hint_threshold": 0.7,
+            "sam_mask_hint_use_negative": "False",
+            "drop_size": 10,
+            "cycle": 1,
+            "inpaint_model": False,
+            "noise_mask_feather": 20,
+        },
+    }
+
+    # Rewire save node to use FaceDetailer output
+    workflow[save_node_id]["inputs"]["images"] = ["fd_main", 0]
+
+
+# Hand detection model for Impact-Pack (same FaceDetailer node, hand YOLO model)
+DEFAULT_HAND_DETECT_MODEL = "hand_yolov8s.pt"
+DEFAULT_HD_DENOISE = 0.35  # Subtle — hands need lower denoise to avoid mutation
+DEFAULT_HD_STEPS = 15
+DEFAULT_HD_GUIDE_SIZE = 384
+
+
+def _add_hand_detailer(
+    workflow: dict,
+    image_node_id: str,
+    model_node_id: str,
+    clip_node_id: str,
+    vae_node_id: str,
+    pos_cond_node_id: str,
+    neg_cond_node_id: str,
+    save_node_id: str,
+    model_output_slot: int = 0,
+    clip_output_slot: int = 0,
+    denoise: float = DEFAULT_HD_DENOISE,
+    steps: int = DEFAULT_HD_STEPS,
+    cfg: float = DEFAULT_FD_CFG,
+    guide_size: int = DEFAULT_HD_GUIDE_SIZE,
+    seed: int = -1,
+) -> None:
+    """Add hand detailer post-processing (Impact-Pack) after face detailer.
+
+    Uses the same FaceDetailer node architecture but with a hand YOLO detection
+    model instead of face YOLO. Detects hand regions → SAM mask → re-inpaint
+    to fix malformed hands, extra fingers, and finger fusion artifacts.
+
+    Chain AFTER _add_face_detailer (uses fd_main output as input).
+    Requires: hand_yolov8s.pt in ComfyUI models/ultralytics/bbox/
+    """
+    s = _seed(seed)
+
+    # Hand BBOX detector (YOLOv8)
+    workflow["hd_detector"] = {
+        "class_type": "UltralyticsDetectorProvider",
+        "inputs": {"model_name": DEFAULT_HAND_DETECT_MODEL},
+    }
+
+    # Reuse SAM from face detailer if available, otherwise add a new one
+    sam_node = "fd_sam" if "fd_sam" in workflow else "hd_sam"
+    if sam_node == "hd_sam":
+        workflow["hd_sam"] = {
+            "class_type": "SAMLoader",
+            "inputs": {
+                "model_name": DEFAULT_SAM_MODEL,
+                "device_mode": "AUTO",
+            },
+        }
+
+    # Hand detailer — same FaceDetailer class, hand YOLO model
+    workflow["hd_main"] = {
+        "class_type": "FaceDetailer",
+        "inputs": {
+            "image": [image_node_id, 0],
+            "model": [model_node_id, model_output_slot],
+            "clip": [clip_node_id, clip_output_slot],
+            "vae": [vae_node_id, 0],
+            "positive": [pos_cond_node_id, 0],
+            "negative": [neg_cond_node_id, 0],
+            "bbox_detector": ["hd_detector", 0],
+            "sam_model_opt": [sam_node, 0],
+            "segm_detector_opt": None,
+            "detailer_hook": None,
+            "guide_size": guide_size,
+            "guide_size_for": True,
+            "max_size": DEFAULT_FD_MAX_SIZE,
+            "seed": s,
+            "steps": steps,
+            "cfg": cfg,
+            "sampler_name": "euler",
+            "scheduler": "simple",
+            "denoise": denoise,
+            "feather": 15,
+            "noise_mask": True,
+            "force_inpaint": False,
+            "bbox_threshold": 0.4,  # Lower threshold — hands harder to detect
+            "bbox_dilation": 15,    # More dilation — capture full hand region
+            "bbox_crop_factor": 3.5,
+            "sam_detection_hint": "center-1",
+            "sam_dilation": 12,
+            "sam_threshold": 0.90,
+            "sam_bbox_expansion": 5,
+            "sam_mask_hint_threshold": 0.65,
+            "sam_mask_hint_use_negative": "False",
+            "drop_size": 10,
+            "cycle": 1,
+            "inpaint_model": False,
+            "noise_mask_feather": 25,
+        },
+    }
+
+    # Rewire save node to use hand detailer output
+    workflow[save_node_id]["inputs"]["images"] = ["hd_main", 0]
+
+
 # ---------------------------------------------------------------------------
 # FLUX Uncensored — text-to-image with unrestricted LoRA
 # ---------------------------------------------------------------------------
 
 def flux_uncensored(
     prompt: str,
-    negative_prompt: str = "",
+    negative_prompt: str = FLUX_NEGATIVE_PROMPT,
     width: int = 1024,
     height: int = 1024,
     steps: int = 25,
@@ -161,6 +444,13 @@ def flux_uncensored(
         workflow["16"]["inputs"]["clip"] = ["20", 1]
         workflow["17"]["inputs"]["clip"] = ["20", 1]
 
+    # Stack optional skin realism LoRA for photorealistic skin texture
+    if lora_name and SKIN_REALISM_LORA:
+        _add_skin_realism_lora(
+            workflow, prev_lora_node_id="20", ksampler_node_id="13",
+            pos_cond_node_id="16", neg_cond_node_id="17",
+        )
+
     if restore_face:
         _add_face_restore(workflow, image_node_id="8", save_node_id="9")
 
@@ -173,7 +463,7 @@ def flux_uncensored(
 
 def realvis_xl(
     prompt: str,
-    negative_prompt: str = "blurry, low quality, deformed, ugly, bad anatomy",
+    negative_prompt: str = SDXL_NEGATIVE_PROMPT,
     width: int = 1024,
     height: int = 1024,
     steps: int = 30,
@@ -239,7 +529,7 @@ def realvis_xl(
 def flux_faceid(
     prompt: str,
     reference_image: str,
-    negative_prompt: str = "blurry, low quality, deformed",
+    negative_prompt: str = FLUX_NEGATIVE_PROMPT,
     identity_strength: float = 1.0,
     width: int = 1024,
     height: int = 1024,
@@ -247,13 +537,19 @@ def flux_faceid(
     cfg: float = 1.0,
     seed: int = -1,
     restore_face: bool = True,
+    face_detailer: bool = False,
+    hand_detailer: bool = False,
     lora_name: str | None = None,
     lora_strength: float = 1.0,
 ) -> dict:
     """Build FLUX.1 Dev + PuLID workflow for face identity preservation.
 
-    Auto-loads uncensored LoRA for unrestricted content. Face restoration
-    enabled by default for photorealistic face quality.
+    Auto-loads uncensored LoRA for unrestricted content.
+
+    Post-processing options (mutually exclusive — face_detailer takes priority):
+      face_detailer: Impact-Pack FaceDetailer (YOLOv8 detect → SAM mask → inpaint).
+                     Higher quality but requires Impact-Pack + models on WORKSHOP.
+      restore_face: ReActor GFPGAN face restore (simpler, faster, always available).
     """
     # Auto-load uncensored LoRA
     if lora_name is None:
@@ -308,11 +604,6 @@ def flux_faceid(
                 "weight": identity_strength,
                 "start_at": 0.0,
                 "end_at": 1.0,
-                "fusion": "mean",
-                "fusion_weight_max": 1.0,
-                "fusion_weight_min": 0.0,
-                "train_step": 1000,
-                "use_gray": True,
             },
         },
         "6": {
@@ -370,7 +661,309 @@ def flux_faceid(
         workflow["16"]["inputs"]["clip"] = ["20", 1]
         workflow["17"]["inputs"]["clip"] = ["20", 1]
 
-    if restore_face:
+        # Stack optional skin realism LoRA between uncensored LoRA and PuLID
+        if SKIN_REALISM_LORA:
+            _add_skin_realism_lora(
+                workflow, prev_lora_node_id="20", ksampler_node_id="13",
+                pos_cond_node_id="16", neg_cond_node_id="17",
+            )
+            # Rewire PuLID to take model from skin LoRA (not uncensored LoRA)
+            workflow["34"]["inputs"]["model"] = ["lora_skin", 0]
+            # KSampler still gets model from PuLID output
+            workflow["13"]["inputs"]["model"] = ["34", 0]
+
+    # ── Detailer chain (face → hands) ─────────────────────────
+    clip_src = "20" if lora_name else "11"
+    clip_slot = 1 if lora_name else 0
+    if face_detailer:
+        # FaceDetailer: YOLOv8 face detection → SAM masking → re-inpaint face
+        _add_face_detailer(
+            workflow,
+            image_node_id="8",
+            model_node_id="34",
+            clip_node_id=clip_src,
+            vae_node_id="10",
+            pos_cond_node_id="16",
+            neg_cond_node_id="17",
+            save_node_id="9",
+            clip_output_slot=clip_slot,
+            seed=s,
+        )
+        if hand_detailer:
+            # Hand detailer: chains after face detailer output
+            _add_hand_detailer(
+                workflow,
+                image_node_id="fd_main",  # input from face detailer output
+                model_node_id="34",
+                clip_node_id=clip_src,
+                vae_node_id="10",
+                pos_cond_node_id="16",
+                neg_cond_node_id="17",
+                save_node_id="9",
+                clip_output_slot=clip_slot,
+                seed=s,
+            )
+    elif hand_detailer:
+        # Hand detailer only (no face detailer)
+        _add_hand_detailer(
+            workflow,
+            image_node_id="8",
+            model_node_id="34",
+            clip_node_id=clip_src,
+            vae_node_id="10",
+            pos_cond_node_id="16",
+            neg_cond_node_id="17",
+            save_node_id="9",
+            clip_output_slot=clip_slot,
+            seed=s,
+        )
+    elif restore_face:
+        _add_face_restore(workflow, image_node_id="8", save_node_id="9")
+
+    return {"prompt": workflow, "client_id": _client_id()}
+
+
+# ---------------------------------------------------------------------------
+# FLUX InfiniteYou — ControlNet-like identity preservation (ByteDance)
+# ---------------------------------------------------------------------------
+
+# InfiniteYou model variants
+INFINITEYOU_SIM = "sim_stage1"  # Higher identity similarity
+INFINITEYOU_AES = "aes_stage2"  # Better aesthetics
+
+# Default InfiniteYou settings
+DEFAULT_IY_STRENGTH = 0.85
+DEFAULT_IY_NUM_TOKENS = 8  # Token count must match image_proj_model architecture
+
+
+def flux_infiniteyou(
+    prompt: str,
+    reference_image: str,
+    negative_prompt: str = FLUX_NEGATIVE_PROMPT,
+    identity_strength: float = DEFAULT_IY_STRENGTH,
+    width: int = 1024,
+    height: int = 1024,
+    steps: int = 25,
+    cfg: float = 1.0,
+    seed: int = -1,
+    restore_face: bool = True,
+    face_detailer: bool = False,
+    hand_detailer: bool = False,
+    lora_name: str | None = None,
+    lora_strength: float = 1.0,
+    variant: str = INFINITEYOU_SIM,
+    num_tokens: int = DEFAULT_IY_NUM_TOKENS,
+) -> dict:
+    """Build FLUX.1 Dev + InfiniteYou (ByteDance) identity preservation workflow.
+
+    InfiniteYou uses InfuseNet (ControlNet-like) with face embeddings injected
+    into conditioning — eliminates face copy-paste artifacts common in PuLID.
+
+    Variants:
+      sim_stage1: Higher identity similarity (default, best for digital replicas)
+      aes_stage2: Better overall aesthetics (slight identity trade-off)
+
+    Post-processing (mutually exclusive — face_detailer takes priority):
+      face_detailer: Impact-Pack FaceDetailer (YOLOv8 → SAM → inpaint).
+      restore_face: ReActor GFPGAN face restore (simpler, faster).
+    """
+    # Auto-load uncensored LoRA
+    if lora_name is None:
+        lora_name = DEFAULT_NSFW_LORA
+        lora_strength = DEFAULT_NSFW_LORA_STRENGTH
+
+    s = _seed(seed)
+
+    # Determine model file names based on variant
+    image_proj_name = f"{variant}/image_proj_model.bin"
+    infusenet_name = f"{variant}/infusenet_{'sim' if variant == INFINITEYOU_SIM else 'aes'}_fp8e4m3fn.safetensors"
+
+    workflow = {
+        # ── Model loading ───────────────────────────────────
+        "10": {
+            "class_type": "VAELoader",
+            "inputs": {"vae_name": "ae.safetensors"},
+        },
+        "11": {
+            "class_type": "DualCLIPLoader",
+            "inputs": {
+                "clip_name1": "t5xxl_fp8_e4m3fn.safetensors",
+                "clip_name2": "clip_l.safetensors",
+                "type": "flux",
+            },
+        },
+        "12": {
+            "class_type": "UNETLoader",
+            "inputs": {
+                "unet_name": "flux1-dev-fp8.safetensors",
+                "weight_dtype": "fp8_e4m3fn",
+            },
+        },
+        # ── LoRA (uncensored) ───────────────────────────────
+        "20": {
+            "class_type": "LoraLoader",
+            "inputs": {
+                "model": ["12", 0],
+                "clip": ["11", 0],
+                "lora_name": lora_name,
+                "strength_model": lora_strength,
+                "strength_clip": lora_strength,
+            },
+        },
+        # ── Prompt encoding ─────────────────────────────────
+        "16": {
+            "class_type": "CLIPTextEncode",
+            "inputs": {
+                "text": prompt,
+                "clip": ["20", 1],  # clip from LoRA
+            },
+        },
+        "17": {
+            "class_type": "CLIPTextEncode",
+            "inputs": {
+                "text": negative_prompt,
+                "clip": ["20", 1],
+            },
+        },
+        # ── Reference image ─────────────────────────────────
+        "15": {
+            "class_type": "LoadImage",
+            "inputs": {"image": reference_image},
+        },
+        # ── InfiniteYou identity pipeline ───────────────────
+        # Load face detector + arcface + image_proj models
+        "30": {
+            "class_type": "IDEmbeddingModelLoader",
+            "inputs": {
+                "image_proj_model_name": image_proj_name,
+                "image_proj_num_tokens": num_tokens,
+                "face_analysis_provider": "CUDA",
+                "face_analysis_det_size": "AUTO",
+            },
+        },
+        # Extract face identity embedding from reference image
+        "31": {
+            "class_type": "ExtractIDEmbedding",
+            "inputs": {
+                "face_detector": ["30", 0],
+                "arcface_model": ["30", 1],
+                "image_proj_model": ["30", 2],
+                "image": ["15", 0],
+            },
+        },
+        # Load InfuseNet ControlNet model
+        "32": {
+            "class_type": "InfuseNetLoader",
+            "inputs": {
+                "controlnet_name": infusenet_name,
+            },
+        },
+        # Apply InfuseNet — injects identity into conditioning
+        "33": {
+            "class_type": "InfuseNetApply",
+            "inputs": {
+                "positive": ["16", 0],
+                "id_embedding": ["31", 0],
+                "control_net": ["32", 0],
+                "image": ["15", 0],
+                "strength": identity_strength,
+                "start_percent": 0.0,
+                "end_percent": 1.0,
+                "negative": ["17", 0],
+                "vae": ["10", 0],
+            },
+        },
+        # ── Empty latent ────────────────────────────────────
+        "13": {
+            "class_type": "EmptySD3LatentImage",
+            "inputs": {
+                "width": width,
+                "height": height,
+                "batch_size": 1,
+            },
+        },
+        # ── Sampling ────────────────────────────────────────
+        "6": {
+            "class_type": "KSampler",
+            "inputs": {
+                "model": ["20", 0],  # model from LoRA (InfiniteYou modifies conditioning, not model)
+                "positive": ["33", 0],  # InfuseNet-modified positive
+                "negative": ["33", 1],  # InfuseNet-modified negative
+                "latent_image": ["13", 0],
+                "seed": s,
+                "steps": steps,
+                "cfg": cfg,
+                "sampler_name": "euler",
+                "scheduler": "simple",
+                "denoise": 1.0,
+            },
+        },
+        # ── Decode + save ───────────────────────────────────
+        "8": {
+            "class_type": "VAEDecode",
+            "inputs": {
+                "samples": ["6", 0],
+                "vae": ["10", 0],
+            },
+        },
+        "9": {
+            "class_type": "SaveImage",
+            "inputs": {
+                "images": ["8", 0],
+                "filename_prefix": "infiniteyou",
+            },
+        },
+    }
+
+    # ── Skin realism LoRA stacking ────────────────────────────
+    if SKIN_REALISM_LORA:
+        _add_skin_realism_lora(
+            workflow, prev_lora_node_id="20", ksampler_node_id="6",
+            pos_cond_node_id="16", neg_cond_node_id="17",
+        )
+
+    # ── Post-processing (face → hands chain) ──────────────────
+    model_source = "lora_skin" if SKIN_REALISM_LORA else "20"
+    if face_detailer:
+        _add_face_detailer(
+            workflow,
+            image_node_id="8",
+            model_node_id=model_source,
+            clip_node_id=model_source,
+            vae_node_id="10",
+            pos_cond_node_id="16",
+            neg_cond_node_id="17",
+            save_node_id="9",
+            clip_output_slot=1,
+            seed=s,
+        )
+        if hand_detailer:
+            _add_hand_detailer(
+                workflow,
+                image_node_id="fd_main",
+                model_node_id=model_source,
+                clip_node_id=model_source,
+                vae_node_id="10",
+                pos_cond_node_id="16",
+                neg_cond_node_id="17",
+                save_node_id="9",
+                clip_output_slot=1,
+                seed=s,
+            )
+    elif hand_detailer:
+        _add_hand_detailer(
+            workflow,
+            image_node_id="8",
+            model_node_id=model_source,
+            clip_node_id=model_source,
+            vae_node_id="10",
+            pos_cond_node_id="16",
+            neg_cond_node_id="17",
+            save_node_id="9",
+            clip_output_slot=1,
+            seed=s,
+        )
+    elif restore_face:
         _add_face_restore(workflow, image_node_id="8", save_node_id="9")
 
     return {"prompt": workflow, "client_id": _client_id()}
@@ -383,7 +976,7 @@ def flux_faceid(
 def sdxl_faceid(
     prompt: str,
     reference_image: str,
-    negative_prompt: str = "blurry, low quality, deformed, ugly, bad anatomy",
+    negative_prompt: str = SDXL_NEGATIVE_PROMPT,
     identity_strength: float = 1.0,
     width: int = 1024,
     height: int = 1024,
@@ -522,8 +1115,9 @@ def queen_portrait(
     lora_name: str | None = None,
     identity_strength: float = 1.0,
     seed: int = -1,
-    negative_prompt: str = "blurry, low quality, deformed, ugly, bad anatomy",
+    negative_prompt: str = FLUX_NEGATIVE_PROMPT,
     restore_face: bool = True,
+    face_detailer: bool = False,
 ) -> dict:
     """Build queen portrait workflow (832x1216).
 
@@ -542,6 +1136,7 @@ def queen_portrait(
             cfg=1.0,
             seed=seed,
             restore_face=restore_face,
+            face_detailer=face_detailer,
             lora_name=lora_name,
         )
     else:
@@ -569,8 +1164,9 @@ def queen_scene(
     lora_name: str | None = None,
     identity_strength: float = 1.0,
     seed: int = -1,
-    negative_prompt: str = "blurry, low quality, deformed, ugly, bad anatomy",
+    negative_prompt: str = FLUX_NEGATIVE_PROMPT,
     restore_face: bool = True,
+    face_detailer: bool = False,
 ) -> dict:
     """Build queen scene workflow (1344x768 cinematic).
 
@@ -589,6 +1185,7 @@ def queen_scene(
             cfg=1.0,
             seed=seed,
             restore_face=restore_face,
+            face_detailer=face_detailer,
             lora_name=lora_name,
         )
     else:
@@ -613,7 +1210,7 @@ def queen_scene(
 def flux_img2img(
     prompt: str,
     source_image: str,
-    negative_prompt: str = "",
+    negative_prompt: str = FLUX_NEGATIVE_PROMPT,
     denoise_strength: float = 0.6,
     width: int = 1024,
     height: int = 1024,
@@ -743,7 +1340,7 @@ def flux_img2img(
 def realvis_img2img(
     prompt: str,
     source_image: str,
-    negative_prompt: str = "blurry, low quality, deformed, ugly, bad anatomy",
+    negative_prompt: str = SDXL_NEGATIVE_PROMPT,
     denoise_strength: float = 0.6,
     width: int = 1024,
     height: int = 1024,
@@ -829,7 +1426,7 @@ def flux_inpaint(
     prompt: str,
     source_image: str,
     mask_image: str,
-    negative_prompt: str = "",
+    negative_prompt: str = FLUX_NEGATIVE_PROMPT,
     denoise_strength: float = 0.8,
     width: int = 1024,
     height: int = 1024,
@@ -978,6 +1575,7 @@ PIPELINE_PRESETS = {
     "flux-uncensored": flux_uncensored,
     "realvis-xl": realvis_xl,
     "flux-faceid": flux_faceid,
+    "flux-infiniteyou": flux_infiniteyou,
     "sdxl-faceid": sdxl_faceid,
     "face-swap": face_swap,
     "queen-portrait": queen_portrait,

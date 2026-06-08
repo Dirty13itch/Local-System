@@ -138,7 +138,7 @@ class EpisodicTier(BaseTier):
         return MemoryEntry(
             id=payload.get("id", entry_id),
             tier=MemoryTier.EPISODIC,
-            content=payload.get("content", payload.get("summary", "")),
+            content=payload.get("content", "") or payload.get("text", "") or payload.get("summary", ""),
             metadata=payload.get("metadata", payload),
             source=payload.get("source", ""),
             confidence=payload.get("confidence", 1.0),
@@ -182,7 +182,7 @@ class EpisodicTier(BaseTier):
             results.append(MemoryEntry(
                 id=payload.get("id", str(hit.id)),
                 tier=MemoryTier.EPISODIC,
-                content=payload.get("content", payload.get("summary", "")),
+                content=payload.get("content", "") or payload.get("text", "") or payload.get("summary", ""),
                 metadata=payload.get("metadata", payload),
                 source=payload.get("source", ""),
                 confidence=hit.score,
