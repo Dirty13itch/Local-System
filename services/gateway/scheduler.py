@@ -35,6 +35,8 @@ from dataclasses import dataclass, field, asdict
 from pathlib import Path
 from typing import Any
 
+import httpx
+
 logger = logging.getLogger("gateway.scheduler")
 
 # Paths
@@ -550,6 +552,197 @@ def _compute_theme_weights(subject_name: str) -> dict[str, float]:
     return weights
 
 
+
+
+# ─── Stash GraphQL integration for dynamic theme weighting ───────────────────
+STASH_URL = os.environ.get("STASH_URL", "http://192.168.1.203:9999")
+_stash_tag_cache: dict[str, list[str]] = {}
+_stash_cache_time: float = 0.0
+
+STASH_TAG_TO_THEME: dict[str, dict[str, float]] = {
+    # Map Stash scene tags to theme boosts (dynamic from actual content)
+    "Anal": {"rough-anal": 3.0, "prone-bone": 2.0, "pile-driver": 2.0},
+    "Blowjob": {"sloppy-blowjob-pov": 3.0, "facefuck-deepthroat": 2.0},
+    "Deepthroat": {"facefuck-deepthroat": 3.0, "throatfuck-sloppy": 3.0},
+    "Facial": {"sloppy-blowjob-pov": 2.0, "facefuck-deepthroat": 1.5},
+    "Big Tits": {"oil-glamour": 2.0, "poolside-luxury": 1.5, "titfuck": 2.5},
+    "POV": {"sloppy-blowjob-pov": 2.5, "cowgirl-riding": 2.0},
+    "Rough Sex": {"rough-choking-fuck": 2.5, "hair-pulling-behind": 2.0, "slapping-degradation": 2.0},
+    "Interracial": {"hardcore-bedroom": 2.0, "gangbang-center": 1.5},
+    "MILF": {"desk-office": 2.0, "facesitting-smother": 2.0},
+    "Outdoor": {"pool-outdoor-fuck": 2.5, "poolside-luxury": 2.0},
+    "Threesome": {"gangbang-center": 2.0},
+    "Lesbian": {"facesitting-smother": 2.5},
+    "Massage": {"oil-glamour": 2.5, "shower-sex": 1.5},
+    "Gagging": {"facefuck-deepthroat": 3.0, "throatfuck-sloppy": 3.0},
+    "Cowgirl": {"cowgirl-riding": 3.0},
+    "Doggy Style": {"prone-bone": 2.0, "hair-pulling-behind": 2.0},
+    "Choking": {"rough-choking-fuck": 3.0, "slapping-degradation": 2.0},
+    "Bondage": {"rough-choking-fuck": 2.0, "slapping-degradation": 2.5},
+    "Creampie": {"prone-bone": 1.5, "cowgirl-riding": 1.5},
+    "Cum Swallow": {"sloppy-blowjob-pov": 2.0, "facefuck-deepthroat": 2.0},
+}
+
+
+async def _query_stash_performer_tags(performer_name: str) -> list[str]:
+    """Query Stash GraphQL for a performer's most common scene tags (async, cached 30min)."""
+    global _stash_tag_cache, _stash_cache_time
+
+    # Cache for 30 min
+    if performer_name in _stash_tag_cache and (time.time() - _stash_cache_time < 1800):
+        return _stash_tag_cache[performer_name]
+
+    query = {
+        "query": """
+        query FindPerformer($name: String!) {
+            findPerformers(performer_filter: { name: { value: $name, modifier: EQUALS } }) {
+                performers {
+                    id
+                    name
+                    scenes {
+                        tags { name }
+                    }
+                }
+            }
+        }
+        """,
+        "variables": {"name": performer_name}
+    }
+
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            resp = await client.post(
+                f"{STASH_URL}/graphql",
+                json=query,
+            )
+            resp.raise_for_status()
+            data = resp.json()
+
+        performers = data.get("data", {}).get("findPerformers", {}).get("performers", [])
+        if not performers:
+            _stash_tag_cache[performer_name] = []
+            return []
+
+        # Count tag frequency across all scenes
+        tag_counts: dict[str, int] = {}
+        for scene in performers[0].get("scenes", []):
+            for tag in scene.get("tags", []):
+                tag_name = tag.get("name", "")
+                tag_counts[tag_name] = tag_counts.get(tag_name, 0) + 1
+
+        # Return top 20 tags sorted by frequency
+        top_tags = sorted(tag_counts.keys(), key=lambda t: tag_counts[t], reverse=True)[:20]
+        _stash_tag_cache[performer_name] = top_tags
+        _stash_cache_time = time.time()
+
+        logger.info("Stash tags for %s (%d scenes): %s",
+                     performer_name, len(performers[0].get("scenes", [])),
+                     ", ".join(top_tags[:8]))
+        return top_tags
+    except Exception as e:
+        logger.debug("Stash query failed for %s: %s (using static weights only)", performer_name, e)
+        _stash_tag_cache[performer_name] = []
+        return []
+
+
+def _compute_stash_theme_weights(tags: list[str]) -> dict[str, float]:
+    """Convert Stash scene tags into theme weight boosts.
+
+    Uses case-insensitive matching since Stash tags have inconsistent casing
+    (e.g. "doggy style" vs "Doggy Style").
+    """
+    # Build case-insensitive lookup from the mapping
+    tag_map_lower = {k.lower(): v for k, v in STASH_TAG_TO_THEME.items()}
+
+    weights: dict[str, float] = {}
+    matched_tags = []
+    for tag in tags:
+        boosts = tag_map_lower.get(tag.lower())
+        if boosts:
+            matched_tags.append(tag)
+            for theme_key, boost in boosts.items():
+                weights[theme_key] = max(weights.get(theme_key, 1.0), boost)
+    if matched_tags:
+        logger.debug("Stash tag matches: %s", ", ".join(matched_tags))
+    return weights
+
+# ─── Score-based feedback for theme weighting ────────────────────────────────
+
+SCORE_HISTORY_PATH = Path(os.environ.get(
+    "SCORE_HISTORY_PATH",
+    "/mnt/vault/data/gen-output/score_history.json",
+))
+
+# Exponential decay: recent scores matter more than old ones
+SCORE_DECAY_FACTOR = 0.95  # Per-entry decay (older entries weighted less)
+SCORE_NEUTRAL = 5.0        # Scores at this value produce weight=1.0
+SCORE_SENSITIVITY = 0.15   # How strongly scores influence weights
+
+
+def _adjust_weights_from_scores(subject_slug: str) -> dict[str, float]:
+    """Compute per-theme weight adjustments from historical aesthetic scores.
+
+    Reads score_history.json, groups entries by theme for this subject,
+    computes a recency-weighted average score per theme, and returns
+    multiplicative weight adjustments.
+
+    A theme scoring consistently above SCORE_NEUTRAL gets boosted (>1.0).
+    A theme scoring consistently below SCORE_NEUTRAL gets penalized (<1.0).
+    The adjustment is gentle — clamped to [0.5, 2.0] range.
+    """
+    if not SCORE_HISTORY_PATH.exists():
+        return {}
+
+    try:
+        history = json.loads(SCORE_HISTORY_PATH.read_text())
+    except Exception:
+        return {}
+
+    # Filter to this subject and entries that have a theme field
+    entries = [
+        e for e in history
+        if e.get("subject") == subject_slug and e.get("theme")
+    ]
+    if not entries:
+        return {}
+
+    # Group by theme, apply recency weighting (newest entries last in list)
+    theme_scores: dict[str, list[tuple[float, float]]] = {}  # theme -> [(score, weight)]
+    n = len(entries)
+    for i, entry in enumerate(entries):
+        theme = entry["theme"]
+        score = entry.get("score", SCORE_NEUTRAL)
+        decay_weight = SCORE_DECAY_FACTOR ** (n - 1 - i)  # Most recent = weight 1.0
+        theme_scores.setdefault(theme, []).append((score, decay_weight))
+
+    # Compute weighted average per theme and derive adjustment factor
+    adjustments: dict[str, float] = {}
+    for theme, scored in theme_scores.items():
+        if len(scored) < 2:
+            # Need at least 2 data points for a meaningful signal
+            continue
+        total_weight = sum(w for _, w in scored)
+        if total_weight < 0.01:
+            continue
+        weighted_avg = sum(s * w for s, w in scored) / total_weight
+
+        # Convert to multiplicative factor:
+        # score=5.0 (neutral) -> factor=1.0
+        # score=7.0 -> factor ~1.3
+        # score=3.0 -> factor ~0.7
+        delta = (weighted_avg - SCORE_NEUTRAL) * SCORE_SENSITIVITY
+        factor = max(0.5, min(2.0, 1.0 + delta))
+        adjustments[theme] = round(factor, 3)
+
+    if adjustments:
+        logger.info(
+            "Score feedback for %s: %s (from %d scored entries)",
+            subject_slug, adjustments, len(entries),
+        )
+    return adjustments
+
+
+
 @dataclass
 class SubjectConfig:
     """Configuration for a generation subject.
@@ -691,24 +884,54 @@ class GenScheduler:
         selected = random.choices(eligible, weights=weights, k=1)[0]
         return selected
 
-    def _select_theme(self, subject: SubjectConfig) -> tuple[str, dict]:
+    async def _select_theme(self, subject: SubjectConfig) -> tuple[str, dict]:
         """Select next theme for subject.
 
-        Uses content-aware weighted random when performer has content area data,
-        otherwise falls back to simple rotation.
+        Merges two weight sources for content-aware selection:
+        1. performers.json content_areas / bimbo_subtype (static DB)
+        2. Stash GraphQL scene tags (live from actual tagged content)
+        Falls back to simple rotation if neither source has data.
         """
         available = subject.themes or list(BUILTIN_THEMES.keys())
 
-        # Try content-aware weighted selection
-        theme_weights = _compute_theme_weights(subject.name)
-        if theme_weights:
-            # Build weighted list — each theme gets base weight 1.0, boosted by content match
-            weights = [theme_weights.get(t, 1.0) for t in available]
+        # -- Source 1: performers.json static weights --
+        db_weights = _compute_theme_weights(subject.name)
+
+        # -- Source 2: Stash scene tag weights (async, cached) --
+        stash_weights: dict[str, float] = {}
+        if subject.subject_type == "performer":
+            display = subject.display_name or subject.name.replace("-", " ").title()
+            stash_tags = await _query_stash_performer_tags(display)
+            if stash_tags:
+                stash_weights = _compute_stash_theme_weights(stash_tags)
+
+        # -- Source 3: Score feedback weights (closed loop from aesthetic scores) --
+        score_weights = _adjust_weights_from_scores(subject.name)
+
+        # -- Merge: take max boost from static/stash sources, then apply score feedback --
+        combined: dict[str, float] = {}
+        all_keys = set(db_weights) | set(stash_weights) | set(score_weights)
+        for k in all_keys:
+            # Static/stash: take max boost from either source
+            static_boost = max(db_weights.get(k, 1.0), stash_weights.get(k, 1.0))
+            # Score feedback: multiplicative adjustment (gentle, 0.5-2.0 range)
+            score_factor = score_weights.get(k, 1.0)
+            combined[k] = static_boost * score_factor
+
+        if combined:
+            weights = [combined.get(t, 1.0) for t in available]
             theme_key = random.choices(available, weights=weights, k=1)[0]
-            logger.debug(
-                "Content-weighted theme for %s: %s (boosted: %s)",
-                subject.name, theme_key,
-                {k: v for k, v in theme_weights.items() if v > 1.0},
+            boosted = {k: v for k, v in combined.items() if v > 1.0 and k in available}
+            sources = []
+            if db_weights:
+                sources.append("performers.json")
+            if stash_weights:
+                sources.append("stash-tags")
+            if score_weights:
+                sources.append("score-feedback")
+            logger.info(
+                "Content-weighted theme for %s: %s (sources: %s, boosted: %s)",
+                subject.name, theme_key, "+".join(sources), boosted,
             )
         else:
             # Fallback: simple rotation
@@ -720,7 +943,7 @@ class GenScheduler:
         if theme_key in BUILTIN_THEMES:
             theme = BUILTIN_THEMES[theme_key]
         else:
-            # Custom theme from subject config — treat as raw context
+            # Custom theme from subject config -- treat as raw context
             theme = {"name": theme_key, "context": theme_key, "mode": subject.mode}
 
         return theme_key, theme
@@ -758,7 +981,7 @@ class GenScheduler:
             else:
                 theme = {"name": theme_key, "context": theme_key, "mode": subject.mode}
         else:
-            theme_key, theme = self._select_theme(subject)
+            theme_key, theme = await self._select_theme(subject)
 
         # Generate unique drop name
         timestamp = time.strftime("%Y%m%d_%H%M")
@@ -790,7 +1013,8 @@ class GenScheduler:
         mode = theme.get("mode", subject.mode)
         context_lines = [
             theme["context"],
-            f"\nmode: {mode}",
+            f"\ntheme: {theme_key}",
+            f"mode: {mode}",
             f"images: {subject.images_per_drop}",
         ]
         (drop_path / "context.txt").write_text("\n".join(context_lines))

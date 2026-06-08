@@ -47,12 +47,12 @@ COMFYUI_URL = os.environ.get("COMFYUI_URL", "http://192.168.1.225:8188")
 # Primary: vLLM creative (Huihui-Qwen3-8B-abliterated, uncensored) on FOUNDRY:8004
 # Alternative: LiteLLM on VAULT:4000 with model="creative"
 LLM_API_URL = os.environ.get(
-    "LLM_API_URL", "http://192.168.1.244:8004/v1"
+    "LLM_API_URL", "http://192.168.1.203:4000/v1"
 )
 LLM_MODEL = os.environ.get(
-    "LLM_MODEL", "/models/Huihui-Qwen3-8B-abliterated-v2"
+    "LLM_MODEL", "creative"
 )
-LLM_API_KEY = os.environ.get("LLM_API_KEY", "not-needed")
+LLM_API_KEY = os.environ.get("LLM_API_KEY", "sk-athanor-_rmK0ymrhtnh_lFTI8I-3QEsB8buCV5d")
 
 # Supported image extensions
 IMAGE_EXTS = {".jpg", ".jpeg", ".png", ".webp", ".bmp", ".tiff"}
@@ -61,7 +61,7 @@ IMAGE_EXTS = {".jpg", ".jpeg", ".png", ".webp", ".bmp", ".tiff"}
 MAX_REFS = 5
 
 # How many auto-portraits to generate
-AUTO_PORTRAITS = 3
+AUTO_PORTRAITS = 4
 
 # Scan interval in seconds
 SCAN_INTERVAL = 30
@@ -72,6 +72,12 @@ SCAN_INTERVAL = 30
 # Currently False: ultralytics not yet installed in WORKSHOP Docker container.
 # To enable: docker exec comfyui pip install ultralytics && restart container
 FACE_DETAILER_ENABLED = False
+
+# Aesthetic Scorer (WORKSHOP:8050) - Best-of-N quality filtering
+SCORER_URL = "http://192.168.1.225:8050"
+SCORE_THRESHOLD = 5.5       # Below this = flagged for regeneration
+SCORE_EXCELLENT = 6.5       # Above this = flagged as quality
+SCORE_HISTORY_PATH = Path("/mnt/vault/data/gen-output/score_history.json")
 
 # ─── LLM Prompt Generation ──────────────────────────────────────────────────
 
@@ -609,11 +615,17 @@ class AutoGenerator:
 
             # Check for optional context file in the drop folder
             context = ""
+            drop_theme = None
             context_file = drop_path / "context.txt"
             if context_file.exists():
                 try:
                     context = context_file.read_text().strip()
                     logger.info("  found context.txt: %s", context[:100])
+                    # Extract theme key if present (written by scheduler)
+                    for line in context.split("\n"):
+                        if line.startswith("theme: "):
+                            drop_theme = line[7:].strip()
+                            break
                 except OSError:
                     pass
 
@@ -658,7 +670,13 @@ class AutoGenerator:
                                         output_path / f"auto_{i:02d}_{filename}",
                                     )
                                     if saved:
-                                        generated.append(saved)
+                                        # Score via Aesthetic Predictor V2.5
+                                        score = await self._score_image(saved)
+                                        if score is not None:
+                                            await self._log_score(subject_slug, prompt, score, str(saved), theme=drop_theme)
+                                            generated.append((saved, score))
+                                        else:
+                                            generated.append((saved, 0.0))
                     except RuntimeError as comfy_err:
                         # NO FALLBACK — log the error and continue to next prompt.
                         # Fix the root cause (GPU assignment, VRAM, pipeline) instead.
@@ -666,6 +684,16 @@ class AutoGenerator:
                             "  gen %d failed at ComfyUI: %s — skipping (no fallback)",
                             i, str(comfy_err)[:200],
                         )
+
+            # Sort by aesthetic score (best first)
+            generated.sort(key=lambda x: x[1] if isinstance(x, tuple) else 0, reverse=True)
+            if generated and isinstance(generated[0], tuple):
+                scores = [s for _, s in generated if s > 0]
+                if scores:
+                    logger.info("  aesthetic scores: best=%.2f worst=%.2f avg=%.2f (threshold=%.1f)",
+                                max(scores), min(scores), sum(scores)/len(scores), SCORE_THRESHOLD)
+                    if max(scores) < SCORE_THRESHOLD:
+                        logger.warning("  ALL images below quality threshold for '%s'", name)
 
             entry.images_generated = len(generated)
 
@@ -682,7 +710,7 @@ class AutoGenerator:
                 name=name,
                 source_count=len(images),
                 ref_images=ref_files,
-                generated_images=[str(g) for g in generated],
+                generated_images=[str(g[0]) if isinstance(g, tuple) else str(g) for g in generated],
                 prompts=prompts,
                 pipeline="flux-faceid",
                 processed_at=time.strftime("%Y-%m-%dT%H:%M:%S"),
@@ -710,7 +738,7 @@ class AutoGenerator:
                 await notifier.init()
                 await notifier.notify_batch(
                     title=f"🎨 {name} — {len(generated)} images generated",
-                    image_paths=[str(g) for g in generated],
+                    image_paths=[str(g[0]) if isinstance(g, tuple) else str(g) for g in generated[:3]],
                     caption=f"Pipeline: flux | Prompts: {len(prompts)}",
                 )
                 await notifier.close()
@@ -820,6 +848,51 @@ class AutoGenerator:
             return None
 
         return None
+
+    async def _score_image(self, image_path):
+        """Score an image using Aesthetic Predictor V2.5."""
+        try:
+            client = await self._get_http()
+            with open(image_path, "rb") as f:
+                files = {"file": (image_path.name, f, "image/jpeg")}
+                resp = await client.post(
+                    f"{SCORER_URL}/score", files=files, timeout=30.0,
+                )
+                resp.raise_for_status()
+                data = resp.json()
+                score = data.get("score", 0.0)
+                quality = data.get("quality", "unknown")
+                logger.info("  scored %s: %.2f (%s)", image_path.name, score, quality)
+                return score
+        except Exception as e:
+            logger.warning("  scoring failed for %s: %s (non-fatal)", image_path.name, e)
+            return None
+
+    async def _log_score(self, subject, prompt, score, image_path, theme=None):
+        """Append score to persistent history file."""
+        try:
+            history = []
+            if SCORE_HISTORY_PATH.exists():
+                try:
+                    history = json.loads(SCORE_HISTORY_PATH.read_text())
+                except Exception:
+                    pass
+            entry = {
+                "subject": subject,
+                "prompt": prompt[:200],
+                "score": score,
+                "image": image_path,
+                "timestamp": time.strftime("%Y-%m-%dT%H:%M:%S"),
+            }
+            if theme:
+                entry["theme"] = theme
+            history.append(entry)
+            if len(history) > 1000:
+                history = history[-1000:]
+            SCORE_HISTORY_PATH.parent.mkdir(parents=True, exist_ok=True)
+            SCORE_HISTORY_PATH.write_text(json.dumps(history, indent=2))
+        except Exception as e:
+            logger.warning("Score logging failed: %s", e)
 
     async def _wait_for_result(
         self,

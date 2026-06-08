@@ -604,11 +604,6 @@ def flux_faceid(
                 "weight": identity_strength,
                 "start_at": 0.0,
                 "end_at": 1.0,
-                "fusion": "mean",
-                "fusion_weight_max": 1.0,
-                "fusion_weight_min": 0.0,
-                "train_step": 1000,
-                "use_gray": True,
             },
         },
         "6": {

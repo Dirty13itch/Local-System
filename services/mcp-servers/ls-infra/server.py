@@ -137,7 +137,7 @@ async def gpu_status() -> list[dict]:
     # Check WORKSHOP GPUs via nvidia-smi over SSH
     try:
         output = subprocess.run(
-            ["ssh", f"shaun@{WORKSHOP_HOST}", nvidia_smi_cmd],
+            ["ssh", f"athanor@{WORKSHOP_HOST}", nvidia_smi_cmd],
             capture_output=True, text=True, timeout=10,
         )
         for line in output.stdout.strip().splitlines():
@@ -223,11 +223,12 @@ async def docker_status(node: str = "vault") -> dict:
     """List Docker containers on a node.
 
     Args:
-        node: Node name — "vault", "foundry", or "dev" (default: "vault")
+        node: Node name — "vault", "foundry", "workshop", or "dev" (default: "vault")
     """
     host_map = {
         "vault": f"root@{VAULT_HOST}",
         "foundry": f"athanor@{FOUNDRY_HOST}",
+        "workshop": f"athanor@{WORKSHOP_HOST}",
         "dev": None,  # local
     }
 

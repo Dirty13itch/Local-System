@@ -228,12 +228,13 @@ async def restart_service(
 
     Args:
         service: Service name (e.g., "gateway", "memory", "litellm")
-        node: Node to restart on — "dev", "vault", "foundry" (default: "dev")
+        node: Node to restart on — "dev", "vault", "foundry", "workshop" (default: "dev")
     """
     host_map = {
         "dev": None,  # local
         "vault": f"root@{VAULT_HOST}",
         "foundry": f"athanor@{FOUNDRY_HOST}",
+        "workshop": f"athanor@{WORKSHOP_HOST}",
     }
 
     ssh_target = host_map.get(node)
@@ -286,12 +287,13 @@ async def tail_logs(
     Args:
         service: Service name (e.g., "gateway", "memory", "litellm")
         lines: Number of lines to return (default: 30)
-        node: Node — "dev", "vault", "foundry" (default: "dev")
+        node: Node — "dev", "vault", "foundry", "workshop" (default: "dev")
     """
     host_map = {
         "dev": None,
         "vault": f"root@{VAULT_HOST}",
         "foundry": f"athanor@{FOUNDRY_HOST}",
+        "workshop": f"athanor@{WORKSHOP_HOST}",
     }
 
     ssh_target = host_map.get(node)

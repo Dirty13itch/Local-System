@@ -70,7 +70,8 @@ python -m pytest tests/ -v
 ## Reference Repos
 
 Old iterations (for patterns and lessons, NOT for copying code):
-- `/opt/reference/athanor/` — Most recent (Feb 2026), 21 ADRs, 8 live agents
-- `/opt/reference/kaizen/` — GWT cognitive architecture (558-line workspace manager)
-- `/opt/reference/hydra/` — 66 MCP tools, 41 n8n workflows
-- `/opt/reference/system-bible/` — Vision and locked hardware
+- `~/repos/reference/local-system/` — This repo's reference copy
+- `~/repos/athanor/` — Current canonical system (successor)
+- `~/repos/reference/kaizen/` — GWT cognitive architecture (558-line workspace manager)
+- `~/repos/reference/hydra/` — 66 MCP tools, 41 n8n workflows
+- `~/repos/reference/system-bible/` — Vision and locked hardware

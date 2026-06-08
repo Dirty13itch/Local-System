@@ -1,5 +1,15 @@
-"""Chat & inference routes — proxy to LiteLLM with content-aware routing."""
+"""Chat & inference routes — proxy to LiteLLM with content-aware routing.
+
+Includes NSFW auto-failover (E.7): when content is classified as
+refusal_sensitive or sovereign_only by the Semantic Router, requests
+are routed directly to the uncensored local model. Cloud model refusals
+are also detected and retried with uncensored.
+"""
 from __future__ import annotations
+
+import logging
+
+import time
 
 import httpx
 from fastapi import APIRouter, HTTPException, Request, WebSocket, WebSocketDisconnect
@@ -13,8 +23,18 @@ from local_system.models import (
     TokenUsage,
 )
 
+from local_system.metrics import LLM_CALLS, LLM_LATENCY, LLM_TOKENS
+
+from ..content_router import (
+    classify_content,
+    is_refusal_error,
+    should_route_sovereign,
+    UNCENSORED_MODEL,
+)
+
 settings = get_settings()
 router = APIRouter(tags=["chat"])
+logger = logging.getLogger("gateway.chat")
 
 # ─── Content Routing ──────────────────────────────────────────────────────
 
@@ -33,6 +53,9 @@ _CODING_TASKS = {"coding", "refactor", "debug", "code-review", "implementation"}
 # Task types for deep reasoning
 _DEEP_REASONING_TASKS = {"architecture", "deep-debug", "analysis", "math", "logic", "planning"}
 
+# Cloud model aliases — these are candidates for refusal failover
+_CLOUD_ALIASES = {"claude", "gpt", "deepseek", "gemini", "reasoning", "coding", "fast"}
+
 
 def select_model(body: ChatRequest) -> str:
     """Select the best model based on request metadata.
@@ -45,11 +68,11 @@ def select_model(body: ChatRequest) -> str:
     the user's choice is respected.
 
     Routing priority:
-    1. NSFW tags or creative workspaces → creative (abliterated)
-    2. Creative tags → creative (could be upgraded to creative-alt later)
-    3. Coding task types → coding
-    4. Deep reasoning task types → reasoning
-    5. Default → reasoning
+    1. NSFW tags or creative workspaces -> creative (abliterated)
+    2. Creative tags -> creative (could be upgraded to creative-alt later)
+    3. Coding task types -> coding
+    4. Deep reasoning task types -> reasoning
+    5. Default -> reasoning
     """
     # If user explicitly chose a valid model alias, respect it
     explicit_aliases = {
@@ -87,6 +110,14 @@ def select_model(body: ChatRequest) -> str:
     return "reasoning"
 
 
+def _last_user_message(body: ChatRequest) -> str:
+    """Extract the last user message text for content classification."""
+    for m in reversed(body.messages):
+        if m.role.value == "user" and m.content:
+            return m.content
+    return ""
+
+
 # ─── Helpers ──────────────────────────────────────────────────────────────
 
 
@@ -112,16 +143,52 @@ def _chat_payload(body: ChatRequest, stream: bool = False) -> dict:
     }
 
 
+
+def _record_llm_call(model: str, status: str, duration: float, usage: dict | None = None) -> None:
+    """Record LLM call metrics."""
+    LLM_CALLS.labels(service=gateway, model=model, status=status).inc()
+    LLM_LATENCY.labels(service=gateway, model=model).observe(duration)
+    if usage:
+        prompt_tokens = usage.get(prompt_tokens, 0)
+        completion_tokens = usage.get(completion_tokens, 0)
+        if prompt_tokens:
+            LLM_TOKENS.labels(service=gateway, model=model, direction=input).inc(prompt_tokens)
+        if completion_tokens:
+            LLM_TOKENS.labels(service=gateway, model=model, direction=output).inc(completion_tokens)
+
+
 # ─── Routes ───────────────────────────────────────────────────────────────
 
 
 @router.post("/v1/chat/completions", response_model=ChatResponse)
 async def chat(request: Request, body: ChatRequest) -> ChatResponse:
-    """Route chat through LiteLLM with content-aware model selection."""
-    # Apply content routing if model is auto or default
+    """Route chat through LiteLLM with content-aware model selection.
+
+    NSFW failover (E.7):
+    1. Classify prompt via Semantic Router before model selection.
+    2. If refusal_sensitive/sovereign_only -> route to uncensored.
+    3. If cloud model returns a content policy refusal -> retry uncensored.
+    """
+    # Step 1: Apply metadata-based content routing
     body.model = select_model(body)
 
+    # Step 2: Semantic Router classification for NSFW auto-failover
+    # Only classify if the selected model could refuse (cloud or cloud-backed)
+    if body.model not in {"creative", UNCENSORED_MODEL}:
+        user_text = _last_user_message(body)
+        if user_text:
+            client = _client(request)
+            route = await classify_content(user_text, client)
+            if should_route_sovereign(route):
+                logger.info(
+                    "NSFW failover: pre-routing to %s (route=%s, was=%s)",
+                    UNCENSORED_MODEL, route, body.model,
+                )
+                body.model = UNCENSORED_MODEL
+
     client = _client(request)
+    t0 = time.monotonic()
+    final_model = body.model
     try:
         resp = await client.post(
             f"{_litellm_url()}/v1/chat/completions",
@@ -129,45 +196,109 @@ async def chat(request: Request, body: ChatRequest) -> ChatResponse:
             headers=_litellm_headers(),
             timeout=300.0,
         )
-        resp.raise_for_status()
+
+        # Step 3: Refusal detection and failover
         data = resp.json()
+        if (
+            body.model != UNCENSORED_MODEL
+            and is_refusal_error(resp.status_code, data)
+        ):
+            logger.info(
+                "NSFW failover: cloud model %s refused, retrying with %s",
+                body.model, UNCENSORED_MODEL,
+            )
+            body.model = UNCENSORED_MODEL
+            final_model = UNCENSORED_MODEL
+            resp = await client.post(
+                f"{_litellm_url()}/v1/chat/completions",
+                json=_chat_payload(body),
+                headers=_litellm_headers(),
+                timeout=300.0,
+            )
+            data = resp.json()
+
+        if resp.status_code >= 400:
+            _record_llm_call(final_model, "error", time.monotonic() - t0)
+            raise HTTPException(
+                status_code=resp.status_code,
+                detail=data.get("error", {}).get("message", str(data)),
+            )
+
+        duration = time.monotonic() - t0
+        usage = data.get("usage", {})
+        served_model = data.get("model", final_model)
+        _record_llm_call(served_model, "success", duration, usage)
+
         choice = data["choices"][0]
         return ChatResponse(
             id=data["id"],
             model=data["model"],
             message=Message(role=choice["message"]["role"], content=choice["message"]["content"]),
-            usage=TokenUsage(**data.get("usage", {})),
+            usage=TokenUsage(**usage),
         )
+    except HTTPException:
+        raise
     except httpx.HTTPStatusError as e:
+        _record_llm_call(final_model, "error", time.monotonic() - t0)
         raise HTTPException(status_code=e.response.status_code, detail=str(e)) from e
     except httpx.RequestError as e:
+        _record_llm_call(final_model, "error", time.monotonic() - t0)
         raise HTTPException(status_code=502, detail=f"LiteLLM unavailable: {e}") from e
 
 
 @router.post("/v1/chat/completions/stream")
 async def chat_stream(request: Request, body: ChatRequest) -> StreamingResponse:
-    """Stream chat via SSE through LiteLLM with content-aware routing."""
+    """Stream chat via SSE through LiteLLM with content-aware routing.
+
+    NSFW failover: pre-classifies content and routes to uncensored
+    before streaming begins. In-stream refusal detection is not
+    practical, so we rely on pre-classification.
+    """
     body.model = select_model(body)
 
+    # Semantic Router pre-classification for streaming
+    if body.model not in {"creative", UNCENSORED_MODEL}:
+        user_text = _last_user_message(body)
+        if user_text:
+            client = _client(request)
+            route = await classify_content(user_text, client)
+            if should_route_sovereign(route):
+                logger.info(
+                    "NSFW failover (stream): pre-routing to %s (route=%s, was=%s)",
+                    UNCENSORED_MODEL, route, body.model,
+                )
+                body.model = UNCENSORED_MODEL
+
     client = _client(request)
+    model = body.model
+    t0_stream = time.monotonic()
 
     async def event_stream():
-        async with client.stream(
-            "POST",
-            f"{_litellm_url()}/v1/chat/completions",
-            json=_chat_payload(body, stream=True),
-            headers=_litellm_headers(),
-            timeout=300.0,
-        ) as resp:
-            async for chunk in resp.aiter_text():
-                yield chunk
+        try:
+            async with client.stream(
+                "POST",
+                f"{_litellm_url()}/v1/chat/completions",
+                json=_chat_payload(body, stream=True),
+                headers=_litellm_headers(),
+                timeout=300.0,
+            ) as resp:
+                async for chunk in resp.aiter_text():
+                    yield chunk
+            LLM_CALLS.labels(service="gateway", model=model, status="success").inc()
+            LLM_LATENCY.labels(service="gateway", model=model).observe(time.monotonic() - t0_stream)
+        except Exception:
+            LLM_CALLS.labels(service="gateway", model=model, status="error").inc()
+            raise
 
     return StreamingResponse(event_stream(), media_type="text/event-stream")
 
 
 @router.websocket("/v1/chat/ws")
 async def chat_websocket(websocket: WebSocket):
-    """WebSocket for interactive chat sessions."""
+    """WebSocket for interactive chat sessions.
+
+    NSFW failover: pre-classifies each message before routing.
+    """
     await websocket.accept()
     # Use the shared app-level HTTP client instead of creating a new one per connection
     client = websocket.app.state.http_client
@@ -176,6 +307,19 @@ async def chat_websocket(websocket: WebSocket):
             data = await websocket.receive_json()
             body = ChatRequest(**data)
             body.model = select_model(body)
+
+            # Semantic Router pre-classification for WebSocket
+            if body.model not in {"creative", UNCENSORED_MODEL}:
+                user_text = _last_user_message(body)
+                if user_text:
+                    route = await classify_content(user_text, client)
+                    if should_route_sovereign(route):
+                        logger.info(
+                            "NSFW failover (ws): pre-routing to %s (route=%s)",
+                            UNCENSORED_MODEL, route,
+                        )
+                        body.model = UNCENSORED_MODEL
+
             async with client.stream(
                 "POST",
                 f"{_litellm_url()}/v1/chat/completions",
